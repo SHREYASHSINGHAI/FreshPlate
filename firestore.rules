@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'shreyashsinghai2005@gmail.com';
+    }
+
+    function canAccessHousehold(householdUid) {
+      let userDoc = get(/databases/$(database)/documents/users/$(householdUid));
+      return isOwner(householdUid) || (
+        isSignedIn() &&
+        userDoc != null &&
+        ('sharedWith' in userDoc.data) &&
+        (request.auth.uid in userDoc.data.sharedWith)
+      );
+    }
+
+    function canEditHousehold(householdUid) {
+      let userDoc = get(/databases/$(database)/documents/users/$(householdUid));
+      return isOwner(householdUid) || (
+        isSignedIn() &&
+        userDoc != null &&
+        ('sharedWith' in userDoc.data) &&
+        (request.auth.uid in userDoc.data.sharedWith) &&
+        (!('roles' in userDoc.data) || (userDoc.data.roles[request.auth.uid] != 'guest'))
+      );
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid) || canAccessHousehold(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid) || canAccessHousehold(uid);
+      allow delete: if false;
+
+      match /ingredients/{ingredientId} {
+        allow get, list: if canAccessHousehold(uid) || isAdmin();
+        allow create, update, delete: if canEditHousehold(uid);
+      }
+
+      match /shopping_list/{itemId} {
+        allow get, list: if canAccessHousehold(uid) || isAdmin();
+        allow create, update, delete: if canEditHousehold(uid);
+      }
+
+      match /stats/{statId} {
+        allow get, list: if canAccessHousehold(uid) || isAdmin();
+        allow write: if canEditHousehold(uid);
+      }
+    }
+
+    match /invites/{code} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
+
+    match /recipe_cache/{cacheId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

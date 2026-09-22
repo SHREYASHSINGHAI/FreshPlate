@@ -1,0 +1,122 @@
+{
+  "roles": [
+    {
+      "name": "owner",
+      "description": "User who owns the primary pantry and household account."
+    },
+    {
+      "name": "member",
+      "description": "Family or household member with full pantry edit permissions."
+    },
+    {
+      "name": "guest",
+      "description": "Guest with read-only access to pantry and shopping list."
+    },
+    {
+      "name": "admin",
+      "description": "Platform administrator."
+    }
+  ],
+  "collections": [
+    {
+      "name": "users",
+      "path": "users/{uid}",
+      "description": "User profiles and household sharing configuration",
+      "methods": [
+        {
+          "method": "read",
+          "allow": ["owner", "member", "guest", "admin"],
+          "condition": "isOwner(uid) || canAccessHousehold(uid) || isAdmin()"
+        },
+        {
+          "method": "write",
+          "allow": ["owner"],
+          "condition": "isOwner(uid)"
+        }
+      ],
+      "schema": {
+        "email": { "type": "string", "required": false },
+        "sharedWith": { "type": "array", "required": false },
+        "roles": { "type": "object", "required": false },
+        "createdAt": { "type": "timestamp", "required": false }
+      }
+    },
+    {
+      "name": "ingredients",
+      "path": "users/{uid}/ingredients/{ingredientId}",
+      "description": "User pantry ingredients",
+      "methods": [
+        {
+          "method": "read",
+          "allow": ["owner", "member", "guest", "admin"],
+          "condition": "canAccessHousehold(uid) || isAdmin()"
+        },
+        {
+          "method": "write",
+          "allow": ["owner", "member"],
+          "condition": "canEditHousehold(uid)"
+        }
+      ],
+      "schema": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "string" },
+        "addedAt": { "type": "string" },
+        "estimatedExpiryDate": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    {
+      "name": "shopping_list",
+      "path": "users/{uid}/shopping_list/{itemId}",
+      "description": "Household shared shopping list items",
+      "methods": [
+        {
+          "method": "read",
+          "allow": ["owner", "member", "guest", "admin"],
+          "condition": "canAccessHousehold(uid) || isAdmin()"
+        },
+        {
+          "method": "write",
+          "allow": ["owner", "member"],
+          "condition": "canEditHousehold(uid)"
+        }
+      ],
+      "schema": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "addedAt": { "type": "string" }
+      }
+    },
+    {
+      "name": "invites",
+      "path": "invites/{code}",
+      "description": "5-minute expiring household invite codes",
+      "methods": [
+        {
+          "method": "get",
+          "allow": ["owner", "member"],
+          "condition": "isSignedIn()"
+        },
+        {
+          "method": "list",
+          "allow": [],
+          "condition": "false"
+        },
+        {
+          "method": "write",
+          "allow": ["owner"],
+          "condition": "isSignedIn()"
+        }
+      ],
+      "schema": {
+        "householdOwnerId": { "type": "string" },
+        "role": { "type": "string" },
+        "expiresAt": { "type": "string" }
+      }
+    }
+  ]
+}
