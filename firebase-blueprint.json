@@ -1,0 +1,55 @@
+{
+  "roles": [
+    {
+      "name": "owner",
+      "description": "User who owns the data."
+    }
+  ],
+  "collections": [
+    {
+      "name": "users",
+      "path": "users/{uid}",
+      "description": "User profiles",
+      "methods": [
+        {
+          "method": "read",
+          "allow": ["owner"],
+          "condition": "request.auth.uid == uid"
+        },
+        {
+          "method": "write",
+          "allow": ["owner"],
+          "condition": "request.auth.uid == uid"
+        }
+      ],
+      "schema": {
+        "email": { "type": "string", "required": false },
+        "createdAt": { "type": "timestamp", "required": false }
+      }
+    },
+    {
+      "name": "ingredients",
+      "path": "users/{uid}/ingredients/{ingredientId}",
+      "description": "User's pantry ingredients",
+      "methods": [
+        {
+          "method": "read",
+          "allow": ["owner"],
+          "condition": "request.auth.uid == uid"
+        },
+        {
+          "method": "write",
+          "allow": ["owner"],
+          "condition": "request.auth.uid == uid"
+        }
+      ],
+      "schema": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "string" },
+        "addedAt": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    }
+  ]
+}

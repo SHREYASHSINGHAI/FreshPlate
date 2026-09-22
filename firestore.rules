@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Primitive Definitions
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // Household Sharing Logic
+    function canAccessHousehold(householdUid) {
+      let userDoc = get(/databases/$(database)/documents/users/$(householdUid));
+      return isOwner(householdUid) || (
+        isSignedIn() && userDoc != null && userDoc.data.get('sharedWith', []) != null && (request.auth.uid in userDoc.data.sharedWith)
+      );
+    }
+
+    // Users Collection
+    match /users/{uid} {
+      allow read: if isOwner(uid) || canAccessHousehold(uid);
+      allow create: if isOwner(uid);
+      
+      // Allow user to update their own email, OR allow other users to append to sharedWith
+      allow update: if isOwner(uid) || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['sharedWith']));
+      
+      allow delete: if false;
+      
+      match /shopping_list/{itemId} {
+        allow read, list, delete, create, update: if canAccessHousehold(uid);
+      }
+      
+      match /ingredients/{ingredientId} {
+        allow read, list, delete, create, update: if canAccessHousehold(uid);
+      }
+
+      match /stats/{statId} {
+        allow read, write: if canAccessHousehold(uid);
+      }
+    }
+
+    // Invites Collection (for joining households)
+    match /invites/{code} {
+      allow read, create: if isSignedIn();
+    }
+  }
+}

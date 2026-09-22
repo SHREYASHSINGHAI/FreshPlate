@@ -1,0 +1,6 @@
+{
+  "name": "FreshPlate",
+  "description": "Track grocery deliveries, monitor freshness, and get AI recipe suggestions to reduce food waste.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
