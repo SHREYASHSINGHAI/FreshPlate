@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ShoppingBag, UploadCloud, Loader2, Plus, Mail, Camera } from "lucide-react";
 import { Ingredient } from "../types";
+import { apiUrl } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useGoogleLogin } from "@react-oauth/google";
 
@@ -54,7 +55,7 @@ export default function ImportView({
     setIsLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/fetch-gmail-receipts", {
+      const res = await fetch(apiUrl("/api/fetch-gmail-receipts"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -110,7 +111,7 @@ export default function ImportView({
     setError("");
 
     try {
-      const res = await fetch("/api/parse-order", {
+      const res = await fetch(apiUrl("/api/parse-order"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, source }),
@@ -181,7 +182,7 @@ export default function ImportView({
     try {
       const base64Data = selectedImage.split(",")[1];
       
-      const res = await fetch("/api/parse-image", {
+      const res = await fetch(apiUrl("/api/parse-image"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 

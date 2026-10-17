@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChefHat, Loader2, Sparkles, Clock, AlertTriangle } from 'lucide-react';
 import { Ingredient, Recipe } from '../types';
+import { apiUrl } from '../lib/api';
 
 export default function RecipesView({ 
   inventory, 
@@ -27,7 +28,7 @@ export default function RecipesView({
     setError('');
 
     try {
-      const res = await fetch('/api/generate-recipes', {
+      const res = await fetch(apiUrl('/api/generate-recipes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ingredients: inventory, cuisine, language, adults, children }),
