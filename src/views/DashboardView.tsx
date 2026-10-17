@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { Activity, Users, Copy, CheckCircle, Target, TrendingUp } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { createHouseholdInvite, joinHousehold } from '../services/householdService';
+import { Activity, Users, Copy, CheckCircle, Target } from 'lucide-react';
 
 export default function DashboardView() {
   const { user, householdId, userProfile } = useAuth();
@@ -37,9 +38,13 @@ export default function DashboardView() {
 
   const generateInvite = async () => {
     if (!user) return;
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    await setDoc(doc(db, 'invites', code), { targetUid: user.uid });
-    setInviteCode(code);
+    try {
+      setError('');
+      const code = await createHouseholdInvite(user.uid);
+      setInviteCode(code);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate invite code');
+    }
   };
 
   const handleJoin = async () => {
@@ -49,24 +54,7 @@ export default function DashboardView() {
     setSuccess('');
     
     try {
-      const inviteRef = doc(db, 'invites', joinCode.trim().toUpperCase());
-      const inviteSnap = await getDoc(inviteRef);
-      
-      if (!inviteSnap.exists()) {
-        throw new Error("Invalid or expired invite code");
-      }
-      
-      const targetUid = inviteSnap.data().targetUid;
-      if (targetUid === user.uid) {
-        throw new Error("You cannot join your own household");
-      }
-      
-      // Update my profile to link to the target household
-      await updateDoc(doc(db, 'users', user.uid), { linkedHousehold: targetUid });
-      
-      // Update target household to add me to sharedWith (for security rules)
-      await updateDoc(doc(db, 'users', targetUid), { sharedWith: arrayUnion(user.uid) });
-      
+      await joinHousehold(user, joinCode);
       setSuccess("Successfully joined the household! Please refresh the page.");
       setJoinCode('');
     } catch (err: any) {
@@ -145,8 +133,11 @@ export default function DashboardView() {
         ) : (
           <div className="space-y-6">
             {userProfile?.linkedHousehold ? (
-              <div className="bg-blue-50 text-blue-800 p-4 rounded-xl text-sm border border-blue-100">
-                You are currently joined to another user's household pantry. To manage your own again, please contact support.
+              <div className="space-y-3">
+                {success && <p className="text-xs text-emerald-600 font-medium">{success}</p>}
+                <div className="bg-blue-50 text-blue-800 p-4 rounded-xl text-sm border border-blue-100">
+                  You are currently joined to another user's household pantry. To manage your own again, please contact support.
+                </div>
               </div>
             ) : (
               <>

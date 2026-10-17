@@ -22,9 +22,20 @@ export function useShoppingList() {
           });
           items.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
           setShoppingList(items);
+          saveLocally(items);
         } catch (error: any) {
-          if (error?.message?.includes('offline')) {
-            console.warn("Firestore sync skipped due to offline mode or iframe restrictions.");
+          if (error?.message?.includes('offline') || error?.code === 'permission-denied') {
+            console.warn("Firestore sync skipped or denied, loading from local storage.");
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+              try {
+                const parsed = JSON.parse(saved);
+                parsed.sort((a: any, b: any) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+                setShoppingList(parsed);
+              } catch (e) {
+                console.error("Failed to parse shopping list", e);
+              }
+            }
           } else {
             console.error("Failed to load shopping list from Firestore", error);
           }
@@ -63,6 +74,7 @@ export function useShoppingList() {
 
     const newList = [...newItems, ...shoppingList];
     setShoppingList(newList);
+    saveLocally(newList);
 
     if (householdId) {
       try {
@@ -75,8 +87,6 @@ export function useShoppingList() {
       } catch (error) {
         console.error("Error adding to shopping list in Firestore", error);
       }
-    } else {
-      saveLocally(newList);
     }
   };
 
@@ -85,6 +95,7 @@ export function useShoppingList() {
       item.id === id ? { ...item, completed } : item
     );
     setShoppingList(newList);
+    saveLocally(newList);
 
     if (householdId) {
       try {
@@ -92,14 +103,13 @@ export function useShoppingList() {
       } catch (error) {
         console.error("Error updating shopping list item", error);
       }
-    } else {
-      saveLocally(newList);
     }
   };
 
   const removeItem = async (id: string) => {
     const newList = shoppingList.filter(i => i.id !== id);
     setShoppingList(newList);
+    saveLocally(newList);
 
     if (householdId) {
       try {
@@ -107,8 +117,6 @@ export function useShoppingList() {
       } catch (error) {
         console.error("Error deleting shopping list item", error);
       }
-    } else {
-      saveLocally(newList);
     }
   };
 
@@ -116,6 +124,7 @@ export function useShoppingList() {
     const completedIds = shoppingList.filter(i => i.completed).map(i => i.id);
     const newList = shoppingList.filter(i => !i.completed);
     setShoppingList(newList);
+    saveLocally(newList);
 
     if (householdId) {
       try {
@@ -128,8 +137,6 @@ export function useShoppingList() {
       } catch (error) {
         console.error("Error removing completed items", error);
       }
-    } else {
-      saveLocally(newList);
     }
   };
 

@@ -6,9 +6,10 @@ import "./index.css";
 import { AuthProvider } from "./context/AuthContext";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
+import { GOOGLE_OAUTH_CLIENT_ID } from "./lib/firebaseConfig";
+
 const clientId =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-  "414171812801-hn95a63mmgd95u00b5nsf2l80h87e5tr.apps.googleusercontent.com";
+  import.meta.env.VITE_GOOGLE_CLIENT_ID || GOOGLE_OAUTH_CLIENT_ID;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

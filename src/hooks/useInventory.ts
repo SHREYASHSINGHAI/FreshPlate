@@ -21,10 +21,20 @@ export function useInventory() {
           querySnapshot.forEach((doc) => {
             items.push(doc.data() as Ingredient);
           });
-          setInventory(updateStatuses(items));
+          const updated = updateStatuses(items);
+          setInventory(updated);
+          saveInventoryLocally(updated);
         } catch (error: any) {
-          if (error?.message?.includes('offline')) {
-            console.warn("Firestore sync skipped due to offline mode or iframe restrictions.");
+          if (error?.message?.includes('offline') || error?.code === 'permission-denied') {
+            console.warn("Firestore sync skipped or denied, loading from local storage.");
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+              try {
+                setInventory(updateStatuses(JSON.parse(saved)));
+              } catch (e) {
+                console.error("Failed to parse inventory", e);
+              }
+            }
           } else {
             console.error("Failed to load inventory from Firestore", error);
           }
@@ -87,6 +97,8 @@ export function useInventory() {
     const newInventory = [...inventory, ...updatedWithStatus];
     setInventory(newInventory);
 
+    saveInventoryLocally(newInventory);
+
     if (householdId) {
       try {
         const batch = writeBatch(db);
@@ -98,14 +110,13 @@ export function useInventory() {
       } catch (error) {
         console.error("Error adding ingredients to Firestore", error);
       }
-    } else {
-      saveInventoryLocally(newInventory);
     }
   };
 
   const removeIngredient = async (id: string, reason?: 'consumed' | 'wasted') => {
     const newInventory = inventory.filter(i => i.id !== id);
     setInventory(newInventory);
+    saveInventoryLocally(newInventory);
 
     if (householdId) {
       try {
@@ -115,14 +126,13 @@ export function useInventory() {
       } catch (error) {
         console.error("Error deleting ingredient from Firestore", error);
       }
-    } else {
-      saveInventoryLocally(newInventory);
     }
   };
 
   const removeIngredients = async (ids: string[], reason?: 'consumed' | 'wasted') => {
     const newInventory = inventory.filter(i => !ids.includes(i.id));
     setInventory(newInventory);
+    saveInventoryLocally(newInventory);
 
     if (householdId) {
       try {
@@ -137,8 +147,6 @@ export function useInventory() {
       } catch (error) {
         console.error("Error deleting ingredients from Firestore", error);
       }
-    } else {
-      saveInventoryLocally(newInventory);
     }
   };
 

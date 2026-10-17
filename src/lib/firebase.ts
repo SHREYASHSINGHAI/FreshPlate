@@ -1,35 +1,46 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  signInWithCredential,
+  getRedirectResult,
   signOut,
 } from "firebase/auth";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyBS7uDMan3jrCJWSPi3uUupKAToLfB2OJc",
-  authDomain: "freshplate-10d10.firebaseapp.com",
-  databaseURL: "https://freshplate-10d10-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "freshplate-10d10",
-  storageBucket: "freshplate-10d10.firebasestorage.app",
-  messagingSenderId: "32026376878",
-  appId: "1:32026376878:web:bb27be1eee6f43a64f8b3f",
-  measurementId: "G-T4SMGJKHFR"
-};
+import { firebaseConfig } from "./firebaseConfig";
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
 
-export const loginWithGoogle = async () => {
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
+export const loginWithGoogleCredential = async (idToken: string) => {
+  const credential = GoogleAuthProvider.credential(idToken);
+  return await signInWithCredential(auth, credential);
+};
+
+export const loginWithGooglePopup = async () => {
+  return await signInWithPopup(auth, googleProvider);
+};
+
+export const loginWithGoogleRedirect = async () => {
+  return await signInWithRedirect(auth, googleProvider);
+};
+
+export const checkRedirectResult = async () => {
   try {
-    await signInWithPopup(auth, googleProvider);
+    return await getRedirectResult(auth);
   } catch (error) {
-    console.error("Error signing in with Google", error);
+    console.warn("Error checking redirect result", error);
+    return null;
   }
 };
+
+export const loginWithGoogle = loginWithGooglePopup;
 
 export const logout = async () => {
   try {
@@ -38,4 +49,3 @@ export const logout = async () => {
     console.error("Error signing out", error);
   }
 };
-

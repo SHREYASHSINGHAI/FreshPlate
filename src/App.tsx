@@ -13,6 +13,7 @@ import RecipesView from './views/RecipesView';
 import AdminView from './views/AdminView';
 import ShoppingListView from './views/ShoppingListView';
 import DashboardView from './views/DashboardView';
+import AuthModal from './components/AuthModal';
 import { Ingredient } from './types';
 import { useAuth } from './context/AuthContext';
 
@@ -195,6 +196,9 @@ export default function App() {
             onClick={() => setActiveTab('dashboard')} 
           />
         </nav>
+
+        {/* In-App Authentication Modal */}
+        <AuthModal />
       </div>
     </div>
   );

@@ -33,3 +33,15 @@ export interface ShoppingListItem {
   addedAt: string; // ISO string
   completed: boolean;
 }
+
+export interface HouseholdMember {
+  memberUid: string;
+  inviteCode: string;
+  joinedAt?: any;
+  email?: string;
+}
+
+export interface HouseholdInvite {
+  targetUid: string;
+  createdAt: any;
+}

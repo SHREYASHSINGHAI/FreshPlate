@@ -1,52 +1,87 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Global Safety Net
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // 2. Primitive Definitions
-    function isSignedIn() { return request.auth != null; }
-    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isSignedIn() {
+      return request.auth != null;
+    }
 
-    // Household Sharing Logic
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email == 'shreyashsinghai2005@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function canAccessHousehold(householdUid) {
       let userDoc = get(/databases/$(database)/documents/users/$(householdUid));
       return isOwner(householdUid) || (
-        isSignedIn() && userDoc != null && userDoc.data.get('sharedWith', []) != null && (request.auth.uid in userDoc.data.sharedWith)
+        isSignedIn()
+        && userDoc != null
+        && (
+          request.auth.uid in userDoc.data.get('sharedWith', [])
+          || exists(/databases/$(database)/documents/users/$(householdUid)/members/$(request.auth.uid))
+        )
       );
     }
 
-    // Users Collection
     match /users/{uid} {
-      allow read: if isOwner(uid) || canAccessHousehold(uid);
+      allow read: if isAdmin() || isOwner(uid) || canAccessHousehold(uid);
       allow create: if isOwner(uid);
-      
-      // Allow user to update their own email, OR allow other users to append to sharedWith
-      allow update: if isOwner(uid) || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['sharedWith']));
-      
+      allow update: if isAdmin() || isOwner(uid);
       allow delete: if false;
-      
+
       match /shopping_list/{itemId} {
-        allow read, list, delete, create, update: if canAccessHousehold(uid);
+        allow read, list, delete, create, update: if isAdmin() || canAccessHousehold(uid);
       }
-      
+
       match /ingredients/{ingredientId} {
-        allow read, list, delete, create, update: if canAccessHousehold(uid);
+        allow read, list, delete, create, update: if isAdmin() || canAccessHousehold(uid);
       }
 
       match /stats/{statId} {
-        allow read, write: if canAccessHousehold(uid);
+        allow read: if isAdmin() || canAccessHousehold(uid);
+        allow write: if canAccessHousehold(uid);
+      }
+
+      match /members/{memberUid} {
+        allow read: if isAdmin() || isOwner(uid) || request.auth.uid == memberUid;
+        allow create: if isSignedIn()
+          && request.auth.uid == memberUid
+          && memberUid != uid
+          && incoming().keys().hasAll(['inviteCode'])
+          && exists(/databases/$(database)/documents/invites/$(incoming().inviteCode))
+          && get(/databases/$(database)/documents/invites/$(incoming().inviteCode)).data.targetUid == uid;
+        allow delete: if isAdmin() || isOwner(uid) || request.auth.uid == memberUid;
       }
     }
 
-    // Invites Collection (for joining households)
     match /invites/{code} {
-      allow read, create: if isSignedIn();
+      allow read: if isSignedIn()
+        && resource.data.createdAt is timestamp
+        && request.time < resource.data.createdAt + duration.value(7, 'd');
+      allow create: if isSignedIn()
+        && incoming().targetUid == request.auth.uid
+        && incoming().createdAt is timestamp;
+      allow delete: if isSignedIn() && (
+        isAdmin()
+        || resource.data.targetUid == request.auth.uid
+        || exists(/databases/$(database)/documents/users/$(resource.data.targetUid)/members/$(request.auth.uid))
+      );
     }
   }
 }
