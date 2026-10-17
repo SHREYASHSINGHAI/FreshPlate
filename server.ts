@@ -179,7 +179,7 @@ async function startServer() {
               {
                 inlineData: {
                   data: imageBase64,
-                  mimeType
+                  mimeType: mimeType || "image/jpeg"
                 }
               },
               {
