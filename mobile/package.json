@@ -8,6 +8,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "tsc --noEmit",
+    "test:smoke": "npx tsx test-release-smoke.cjs",
+    "test:compliance": "node test-store-compliance.cjs",
+    "test:systems": "npx tsx test-mobile-systems.cjs",
+    "test:all": "npx tsx test-release-smoke.cjs && node test-store-compliance.cjs && npx tsx test-mobile-systems.cjs",
     "build:android": "eas build --platform android --profile production",
     "build:ios": "eas build --platform ios --profile production",
     "build:all": "eas build --platform all --profile production",
@@ -16,8 +20,11 @@
     "submit:ios": "eas submit --platform ios --profile production"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^1.23.1",
     "expo": "~52.0.0",
+    "expo-build-properties": "~0.13.3",
     "expo-camera": "~16.0.17",
+    "expo-image-manipulator": "~13.0.6",
     "expo-image-picker": "~16.0.6",
     "expo-status-bar": "~2.0.1",
     "react": "18.3.1",

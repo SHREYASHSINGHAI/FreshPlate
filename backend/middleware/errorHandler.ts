@@ -8,7 +8,7 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         success: false,
-        error: 'File size too large. Maximum allowed size is 15MB.'
+        error: 'File size too large. Maximum allowed size is 5MB.'
       });
     }
     return res.status(400).json({

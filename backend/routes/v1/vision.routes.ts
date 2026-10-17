@@ -7,6 +7,7 @@ import {
 } from '../../controllers/vision.controller';
 import { visionRateLimiter } from '../../middleware/rateLimiter';
 import { flexibleImageUpload } from '../../middleware/upload';
+import { validateImageInput } from '../../middleware/validator';
 
 const router = Router();
 
@@ -26,6 +27,7 @@ router.post(
   '/scan-receipt',
   visionRateLimiter,
   flexibleImageUpload,
+  validateImageInput,
   scanReceiptController
 );
 
@@ -45,6 +47,7 @@ router.post(
   '/scan-fridge',
   visionRateLimiter,
   flexibleImageUpload,
+  validateImageInput,
   scanFridgeController
 );
 

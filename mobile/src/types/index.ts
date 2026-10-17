@@ -112,3 +112,34 @@ export interface FridgeScanResponse {
   error?: string;
   advice?: string;
 }
+
+/**
+ * Mobile Systems Network Error taxonomy for fine-grained user feedback & recovery
+ */
+export type NetworkErrorCode =
+  | 'OFFLINE'
+  | 'TIMEOUT'
+  | 'BLURRY_IMAGE'
+  | 'RATE_LIMITED'
+  | 'SERVER_ERROR'
+  | 'PAYLOAD_TOO_LARGE'
+  | 'UNKNOWN';
+
+export interface NetworkErrorInfo {
+  code: NetworkErrorCode;
+  title: string;
+  message: string;
+  advice?: string;
+  isRetryable: boolean;
+  statusCode?: number;
+  quality?: ImageQualityMetrics;
+}
+
+export interface CompressionResult {
+  uri: string;
+  sizeBytes: number;
+  originalSizeBytes?: number;
+  compressionRatio: number;
+  width?: number;
+  height?: number;
+}

@@ -2,15 +2,9 @@ import crypto from 'crypto';
 import { geminiClient, PRIMARY_VISION_MODEL, FALLBACK_VISION_MODEL } from '../config/gemini';
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+import { config } from '../config/env';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBS7uDMan3jrCJWSPi3uUupKAToLfB2OJc",
-  authDomain: "freshplate-10d10.firebaseapp.com",
-  projectId: "freshplate-10d10",
-  storageBucket: "freshplate-10d10.firebasestorage.app",
-  messagingSenderId: "32026376878",
-  appId: "1:32026376878:web:bb27be1eee6f43a64f8b3f"
-};
+const firebaseConfig = config.firebase;
 
 const fbApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const db = getFirestore(fbApp);

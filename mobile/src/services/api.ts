@@ -1,15 +1,124 @@
-import { Platform } from 'react-native';
 import { getApiBaseUrl, API_ENDPOINTS } from '../config/env';
 import {
   AnalyzeIngredientsResponse,
   ReceiptScanResponse,
   FridgeScanResponse,
-  GenerateRecipesResponse
+  GenerateRecipesResponse,
+  NetworkErrorCode,
+  NetworkErrorInfo
 } from '../types';
+import { compressImageForUpload, formatBytes } from './imageCompression';
 
 export interface UploadOptions {
   timeoutMs?: number;
   customBaseUrl?: string;
+  skipCompression?: boolean;
+}
+
+/**
+ * Standardized Mobile Systems Error for network, timeout, quality, and server issues.
+ */
+export class ApiError extends Error {
+  code: NetworkErrorCode;
+  statusCode?: number;
+  advice?: string;
+  quality?: any;
+  isRetryable: boolean;
+
+  constructor(params: {
+    message: string;
+    code: NetworkErrorCode;
+    statusCode?: number;
+    advice?: string;
+    quality?: any;
+    isRetryable?: boolean;
+  }) {
+    super(params.message);
+    this.name = 'ApiError';
+    this.code = params.code;
+    this.statusCode = params.statusCode;
+    this.advice = params.advice;
+    this.quality = params.quality;
+    this.isRetryable = params.isRetryable ?? true;
+  }
+}
+
+/**
+ * Parses any raw error into a structured NetworkErrorInfo object for UI banners.
+ */
+export function parseNetworkError(error: any): NetworkErrorInfo {
+  if (error instanceof ApiError) {
+    let title = 'Network Alert';
+    switch (error.code) {
+      case 'OFFLINE':
+        title = 'No Internet Connection';
+        break;
+      case 'TIMEOUT':
+        title = 'Connection Timed Out';
+        break;
+      case 'BLURRY_IMAGE':
+        title = 'Photo Unclear or Blurry';
+        break;
+      case 'RATE_LIMITED':
+        title = 'Quota Limit Reached';
+        break;
+      case 'SERVER_ERROR':
+        title = 'AI Server Unavailable';
+        break;
+      case 'PAYLOAD_TOO_LARGE':
+        title = 'File Too Large';
+        break;
+      default:
+        title = 'Analysis Notice';
+        break;
+    }
+
+    return {
+      code: error.code,
+      title,
+      message: error.message,
+      advice: error.advice,
+      isRetryable: error.isRetryable,
+      statusCode: error.statusCode,
+      quality: error.quality
+    };
+  }
+
+  // Handle standard AbortError / Timeout
+  if (error?.name === 'AbortError' || error?.message?.includes('timed out')) {
+    return {
+      code: 'TIMEOUT',
+      title: 'Connection Timed Out',
+      message: 'The photo upload took too long to complete.',
+      advice: 'Your mobile data or Wi-Fi connection may be weak. Tap Retry to send again.',
+      isRetryable: true
+    };
+  }
+
+  // Handle offline / connection failures
+  const msg = String(error?.message || '').toLowerCase();
+  if (
+    msg.includes('network request failed') ||
+    msg.includes('failed to connect') ||
+    msg.includes('econnrefused') ||
+    msg.includes('network error')
+  ) {
+    return {
+      code: 'OFFLINE',
+      title: 'Network Disconnected',
+      message: 'Unable to reach the FreshPlate AI server.',
+      advice: 'Please check your cellular data or Wi-Fi connection. Your pantry items are stored offline.',
+      isRetryable: true
+    };
+  }
+
+  return {
+    code: 'UNKNOWN',
+    title: 'Upload Issue',
+    message: error?.message || 'An unexpected error occurred during photo analysis.',
+    advice: 'Please check your connection and tap Retry.',
+    isRetryable: true
+  };
 }
 
 /**
@@ -37,31 +146,53 @@ function getFileInfoFromUri(uri: string): { filename: string; mimeType: string }
 }
 
 /**
- * Converts a captured photo URI into a multipart FormData payload and dispatches
- * the request to the secure backend endpoint /api/v1/analyze-ingredients.
- * 
- * @param photoUri Local file URI from expo-camera or expo-image-picker
- * @param options Timeout and custom URL overrides
+ * Prepares a FormData payload with guaranteed client-side compression (< 2MB).
+ */
+async function prepareCompressedFormData(
+  photoUri: string,
+  skipCompression = false
+): Promise<{ formData: FormData; compressedUri: string; sizeBytes: number }> {
+  let targetUri = photoUri;
+  let finalSize = 0;
+
+  if (!skipCompression) {
+    try {
+      const compressionResult = await compressImageForUpload(photoUri);
+      targetUri = compressionResult.uri;
+      finalSize = compressionResult.sizeBytes;
+      console.log(
+        `[FreshPlate API] Compressed photo before upload: ${formatBytes(finalSize)} (${compressionResult.compressionRatio}% savings)`
+      );
+    } catch (compressionErr) {
+      console.warn('[FreshPlate API] Client compression warning, falling back to original:', compressionErr);
+    }
+  }
+
+  const { filename, mimeType } = getFileInfoFromUri(targetUri);
+  const formData = new FormData();
+  formData.append('image', {
+    uri: targetUri,
+    name: filename,
+    type: mimeType
+  } as any);
+
+  return { formData, compressedUri: targetUri, sizeBytes: finalSize };
+}
+
+/**
+ * Dispatches multipart upload request to the secure backend endpoint /api/v1/analyze-ingredients.
+ * Guarantees client-side compression (< 2MB) before network transmission.
  */
 export async function uploadPhotoForAnalysis(
   photoUri: string,
   options: UploadOptions = {}
 ): Promise<AnalyzeIngredientsResponse> {
-  const { timeoutMs = 45000, customBaseUrl } = options;
+  const { timeoutMs = 45000, customBaseUrl, skipCompression = false } = options;
   const baseUrl = customBaseUrl || getApiBaseUrl();
   const endpointUrl = `${baseUrl}${API_ENDPOINTS.ANALYZE_INGREDIENTS}`;
 
-  const { filename, mimeType } = getFileInfoFromUri(photoUri);
+  const { formData } = await prepareCompressedFormData(photoUri, skipCompression);
 
-  // 1. Build multipart/form-data payload for React Native native fetch
-  const formData = new FormData();
-  formData.append('image', {
-    uri: photoUri,
-    name: filename,
-    type: mimeType
-  } as any);
-
-  // 2. Setup AbortController for timeout protection
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -70,52 +201,109 @@ export async function uploadPhotoForAnalysis(
       method: 'POST',
       body: formData,
       headers: {
-        'Accept': 'application/json',
-        // Note: Do NOT explicitly set 'Content-Type' so the runtime appends multipart boundary
+        'Accept': 'application/json'
       },
       signal: controller.signal
     });
 
     clearTimeout(timer);
-
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const errorMessage = data?.error || `Upload failed with status code ${response.status}`;
-      throw new Error(errorMessage);
+      if (response.status === 422) {
+        throw new ApiError({
+          code: 'BLURRY_IMAGE',
+          statusCode: 422,
+          message: data?.error || 'Photo is too blurry or dark to recognize ingredients.',
+          advice: data?.advice || 'Please hold steady under bright light and take another photo.',
+          quality: data?.quality,
+          isRetryable: true
+        });
+      }
+
+      if (response.status === 429) {
+        throw new ApiError({
+          code: 'RATE_LIMITED',
+          statusCode: 429,
+          message: data?.error || 'Rate limit reached. Please wait a few moments.',
+          advice: 'AI scan quota is temporarily reached. Try again in 30 seconds.',
+          isRetryable: true
+        });
+      }
+
+      if (response.status === 413) {
+        throw new ApiError({
+          code: 'PAYLOAD_TOO_LARGE',
+          statusCode: 413,
+          message: data?.error || 'Image payload exceeded the 5MB backend limit.',
+          advice: 'Automatic client compression will resize the image further on retry.',
+          isRetryable: true
+        });
+      }
+
+      if (response.status >= 500) {
+        throw new ApiError({
+          code: 'SERVER_ERROR',
+          statusCode: response.status,
+          message: data?.error || 'AI vision service temporarily unavailable.',
+          advice: 'The server is experiencing high demand. Please tap Retry.',
+          isRetryable: true
+        });
+      }
+
+      throw new ApiError({
+        code: 'UNKNOWN',
+        statusCode: response.status,
+        message: data?.error || `Upload failed with status code ${response.status}`,
+        isRetryable: true
+      });
     }
 
     return data as AnalyzeIngredientsResponse;
   } catch (error: any) {
     clearTimeout(timer);
+    if (error instanceof ApiError) throw error;
 
     if (error.name === 'AbortError') {
-      throw new Error(`Upload request timed out after ${timeoutMs / 1000} seconds. Please check your network connection.`);
+      throw new ApiError({
+        code: 'TIMEOUT',
+        message: `Upload request timed out after ${timeoutMs / 1000} seconds.`,
+        advice: 'Please check your cellular or Wi-Fi signal and tap Retry.',
+        isRetryable: true
+      });
     }
 
-    console.error('[FreshPlate Mobile API] Error uploading photo:', error);
-    throw error;
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('network request failed') || msg.includes('failed to connect')) {
+      throw new ApiError({
+        code: 'OFFLINE',
+        message: 'No internet connection detected.',
+        advice: 'Check your mobile data or Wi-Fi settings. Your pantry inventory is cached offline.',
+        isRetryable: true
+      });
+    }
+
+    throw new ApiError({
+      code: 'UNKNOWN',
+      message: error.message || 'Failed to complete image analysis.',
+      isRetryable: true
+    });
   }
 }
 
 /**
  * Specialized upload utility for grocery receipts -> /api/v1/scan-receipt
+ * Auto-compresses under 2MB and catches blur / lighting / network errors.
  */
 export async function uploadReceiptPhoto(
   photoUri: string,
   options: UploadOptions = {}
 ): Promise<ReceiptScanResponse> {
-  const { timeoutMs = 45000, customBaseUrl } = options;
+  const { timeoutMs = 45000, customBaseUrl, skipCompression = false } = options;
   const baseUrl = customBaseUrl || getApiBaseUrl();
   const endpointUrl = `${baseUrl}${API_ENDPOINTS.SCAN_RECEIPT}`;
 
-  const { filename, mimeType } = getFileInfoFromUri(photoUri);
-  const formData = new FormData();
-  formData.append('image', {
-    uri: photoUri,
-    name: filename,
-    type: mimeType
-  } as any);
+  const { formData } = await prepareCompressedFormData(photoUri, skipCompression);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -132,34 +320,90 @@ export async function uploadReceiptPhoto(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data?.error || `Receipt scan failed (HTTP ${response.status})`);
+      if (response.status === 422) {
+        throw new ApiError({
+          code: 'BLURRY_IMAGE',
+          statusCode: 422,
+          message: data?.error || 'Receipt is too blurry or illegible to parse.',
+          advice: data?.advice || 'Please flatten the paper receipt under direct light and retake.',
+          quality: data?.quality,
+          isRetryable: true
+        });
+      }
+
+      if (response.status === 429) {
+        throw new ApiError({
+          code: 'RATE_LIMITED',
+          statusCode: 429,
+          message: data?.error || 'AI receipt scanning quota reached. Please wait a moment.',
+          advice: 'Wait 30 seconds before submitting another receipt.',
+          isRetryable: true
+        });
+      }
+
+      if (response.status >= 500) {
+        throw new ApiError({
+          code: 'SERVER_ERROR',
+          statusCode: response.status,
+          message: data?.error || 'Server error while parsing receipt.',
+          advice: 'The server is busy. Tap Retry to try again.',
+          isRetryable: true
+        });
+      }
+
+      throw new ApiError({
+        code: 'UNKNOWN',
+        statusCode: response.status,
+        message: data?.error || `Receipt scan failed (HTTP ${response.status})`,
+        isRetryable: true
+      });
     }
 
     return data as ReceiptScanResponse;
   } catch (error: any) {
     clearTimeout(timer);
-    throw error;
+    if (error instanceof ApiError) throw error;
+
+    if (error.name === 'AbortError') {
+      throw new ApiError({
+        code: 'TIMEOUT',
+        message: `Receipt scan timed out after ${timeoutMs / 1000} seconds.`,
+        advice: 'Check your connection signal and tap Retry.',
+        isRetryable: true
+      });
+    }
+
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('network request failed')) {
+      throw new ApiError({
+        code: 'OFFLINE',
+        message: 'Network offline. Unable to send receipt to server.',
+        advice: 'Connect to Wi-Fi or cellular data to analyze receipts.',
+        isRetryable: true
+      });
+    }
+
+    throw new ApiError({
+      code: 'UNKNOWN',
+      message: error.message || 'Receipt scan failed.',
+      isRetryable: true
+    });
   }
 }
 
 /**
  * Specialized upload utility for refrigerator shelf scans -> /api/v1/scan-fridge
+ * Auto-compresses under 2MB and catches low-light / motion-blur errors.
  */
 export async function uploadFridgePhoto(
   photoUri: string,
   options: UploadOptions = {}
 ): Promise<FridgeScanResponse> {
-  const { timeoutMs = 45000, customBaseUrl } = options;
+  const { timeoutMs = 45000, customBaseUrl, skipCompression = false } = options;
   const baseUrl = customBaseUrl || getApiBaseUrl();
   const endpointUrl = `${baseUrl}${API_ENDPOINTS.SCAN_FRIDGE}`;
 
-  const { filename, mimeType } = getFileInfoFromUri(photoUri);
-  const formData = new FormData();
-  formData.append('image', {
-    uri: photoUri,
-    name: filename,
-    type: mimeType
-  } as any);
+  const { formData } = await prepareCompressedFormData(photoUri, skipCompression);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -176,13 +420,74 @@ export async function uploadFridgePhoto(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data?.error || `Fridge scan failed (HTTP ${response.status})`);
+      if (response.status === 422) {
+        throw new ApiError({
+          code: 'BLURRY_IMAGE',
+          statusCode: 422,
+          message: data?.error || 'Fridge photo is too dark or blurry to identify items.',
+          advice: data?.advice || 'Please turn on room or fridge lights, hold steady, and retake.',
+          quality: data?.quality,
+          isRetryable: true
+        });
+      }
+
+      if (response.status === 429) {
+        throw new ApiError({
+          code: 'RATE_LIMITED',
+          statusCode: 429,
+          message: data?.error || 'Fridge scan quota reached.',
+          advice: 'Please wait a moment before taking another scan.',
+          isRetryable: true
+        });
+      }
+
+      if (response.status >= 500) {
+        throw new ApiError({
+          code: 'SERVER_ERROR',
+          statusCode: response.status,
+          message: data?.error || 'AI vision model temporarily overloaded.',
+          advice: 'Please tap Retry in a few seconds.',
+          isRetryable: true
+        });
+      }
+
+      throw new ApiError({
+        code: 'UNKNOWN',
+        statusCode: response.status,
+        message: data?.error || `Fridge scan failed (HTTP ${response.status})`,
+        isRetryable: true
+      });
     }
 
     return data as FridgeScanResponse;
   } catch (error: any) {
     clearTimeout(timer);
-    throw error;
+    if (error instanceof ApiError) throw error;
+
+    if (error.name === 'AbortError') {
+      throw new ApiError({
+        code: 'TIMEOUT',
+        message: `Fridge scan timed out after ${timeoutMs / 1000} seconds.`,
+        advice: 'Check your connection signal and tap Retry.',
+        isRetryable: true
+      });
+    }
+
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('network request failed')) {
+      throw new ApiError({
+        code: 'OFFLINE',
+        message: 'No network connection detected.',
+        advice: 'Connect to Wi-Fi or mobile data to analyze fridge photos.',
+        isRetryable: true
+      });
+    }
+
+    throw new ApiError({
+      code: 'UNKNOWN',
+      message: error.message || 'Fridge scan failed.',
+      isRetryable: true
+    });
   }
 }
 
@@ -197,7 +502,6 @@ export interface GenerateRecipesOptions {
 
 /**
  * Sends confirmed pantry items to POST /api/v1/generate-recipes
- * to produce personalized recipes matching pantry stock and expiring items.
  */
 export async function generateRecipesFromPantry(
   items: Array<{ id: string; name: string; quantity: string; status?: string; category?: string }>,
@@ -246,16 +550,62 @@ export async function generateRecipesFromPantry(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data?.error || `Recipe generation failed with status ${response.status}`);
+      if (response.status === 429) {
+        throw new ApiError({
+          code: 'RATE_LIMITED',
+          statusCode: 429,
+          message: data?.error || 'Recipe generation limit reached.',
+          advice: 'Please wait a moment before generating more recipes.',
+          isRetryable: true
+        });
+      }
+
+      if (response.status >= 500) {
+        throw new ApiError({
+          code: 'SERVER_ERROR',
+          statusCode: response.status,
+          message: data?.error || 'AI recipe generation service is busy.',
+          advice: 'Please tap Retry to attempt recipe synthesis again.',
+          isRetryable: true
+        });
+      }
+
+      throw new ApiError({
+        code: 'UNKNOWN',
+        statusCode: response.status,
+        message: data?.error || `Recipe generation failed (${response.status})`,
+        isRetryable: true
+      });
     }
 
     return data as GenerateRecipesResponse;
   } catch (error: any) {
     clearTimeout(timer);
+    if (error instanceof ApiError) throw error;
+
     if (error.name === 'AbortError') {
-      throw new Error(`Recipe generation timed out after ${timeoutMs / 1000} seconds. Please verify your connection.`);
+      throw new ApiError({
+        code: 'TIMEOUT',
+        message: `Recipe generation timed out after ${timeoutMs / 1000} seconds.`,
+        advice: 'Please verify your internet connection and retry.',
+        isRetryable: true
+      });
     }
-    console.error('[FreshPlate Mobile API] Error generating recipes:', error);
-    throw error;
+
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('network request failed')) {
+      throw new ApiError({
+        code: 'OFFLINE',
+        message: 'Network offline. Cannot generate online recipes.',
+        advice: 'Connect to internet, or view previously saved recipes in offline storage.',
+        isRetryable: true
+      });
+    }
+
+    throw new ApiError({
+      code: 'UNKNOWN',
+      message: error.message || 'Error generating recipes.',
+      isRetryable: true
+    });
   }
 }

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { analyzeIngredientsController } from '../../controllers/ingredients.controller';
 import { visionRateLimiter } from '../../middleware/rateLimiter';
 import { flexibleImageUpload } from '../../middleware/upload';
+import { validateImageInput } from '../../middleware/validator';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ router.post(
   '/analyze-ingredients',
   visionRateLimiter,
   flexibleImageUpload,
+  validateImageInput,
   analyzeIngredientsController
 );
 

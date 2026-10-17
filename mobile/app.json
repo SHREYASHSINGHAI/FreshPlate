@@ -15,16 +15,20 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.freshplate.app",
       "buildNumber": "1",
+      "deploymentTarget": "15.1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "FreshPlate requires access to your camera to scan grocery receipts and refrigerator shelves for automated pantry tracking and food waste reduction.",
-        "NSPhotoLibraryUsageDescription": "FreshPlate needs access to your photo library to import existing photos of grocery receipts and pantry items.",
-        "NSPhotoLibraryAddUsageDescription": "FreshPlate may save processed grocery receipts or inventory scans to your photo library."
+        "NSCameraUsageDescription": "FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients.",
+        "NSPhotoLibraryUsageDescription": "FreshPlate accesses your photos so you can upload saved receipts and food images.",
+        "NSPhotoLibraryAddUsageDescription": "FreshPlate accesses your photos so you can upload saved receipts and food images."
       }
     },
     "android": {
       "package": "com.freshplate.app",
       "versionCode": 1,
+      "compileSdkVersion": 35,
+      "targetSdkVersion": 35,
+      "minSdkVersion": 24,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -41,13 +45,27 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "FreshPlate requires access to your camera to scan grocery receipts and refrigerator shelves for automated pantry tracking."
+          "cameraPermission": "FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "FreshPlate needs access to your photo library to import existing grocery receipts and pantry photos."
+          "photosPermission": "FreshPlate accesses your photos so you can upload saved receipts and food images."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24,
+            "buildToolsVersion": "35.0.0"
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
         }
       ]
     ],

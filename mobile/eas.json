@@ -26,25 +26,32 @@
     },
     "production": {
       "autoIncrement": true,
+      "distribution": "store",
       "channel": "production",
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:bundleRelease"
       },
       "ios": {
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.freshplate.app"
+        "EXPO_PUBLIC_API_URL": "https://api.freshplate.app",
+        "NODE_ENV": "production"
       }
     }
   },
   "submit": {
     "production": {
       "android": {
-        "track": "internal"
+        "serviceAccountKeyPath": "./google-services-key.json",
+        "track": "internal",
+        "releaseStatus": "completed"
       },
       "ios": {
-        "appleId": "developer@freshplate.app"
+        "appleId": "developer@freshplate.app",
+        "ascAppId": "com.freshplate.app",
+        "appleTeamId": "FRESHPLATE_TEAM"
       }
     }
   }

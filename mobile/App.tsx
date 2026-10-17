@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -16,19 +16,29 @@ import {
   uploadPhotoForAnalysis,
   uploadReceiptPhoto,
   uploadFridgePhoto,
-  generateRecipesFromPantry
+  generateRecipesFromPantry,
+  parseNetworkError
 } from './src/services/api';
 import {
   ScanMode,
   PantryGroup,
   PantryReviewItem,
-  Recipe
+  Recipe,
+  NetworkErrorInfo
 } from './src/types';
 import { PantryReviewScreen } from './src/components/PantryReviewScreen';
 import { RecipeListScreen } from './src/components/RecipeListScreen';
 import { AccountPrivacySettingsModal } from './src/components/AccountPrivacySettingsModal';
+import { SettingsScreen } from './src/components/SettingsScreen';
+import { NetworkErrorBanner } from './src/components/NetworkErrorBanner';
+import {
+  loadCachedPantryItems,
+  saveCachedPantryItems,
+  getLastSyncTimestamp,
+  clearCachedPantry
+} from './src/services/storage';
 
-type AppScreen = 'scan' | 'review' | 'recipes';
+type AppScreen = 'scan' | 'review' | 'recipes' | 'settings';
 
 // Default sample pantry items for instant demo review
 const SAMPLE_PANTRY_ITEMS: PantryReviewItem[] = [
@@ -162,13 +172,47 @@ export default function App() {
   const [mode, setMode] = useState<ScanMode>('receipt');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [scanResult, setScanResult] = useState<any | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [networkError, setNetworkError] = useState<NetworkErrorInfo | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
-  // Review & Recipe State
+  // Review & Recipe State (backed by AsyncStorage)
   const [reviewItems, setReviewItems] = useState<PantryReviewItem[]>(SAMPLE_PANTRY_ITEMS);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isGeneratingRecipes, setIsGeneratingRecipes] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+
+  // Hydrate pantry inventory from local device cache on initial launch
+  useEffect(() => {
+    async function hydrateOfflineStorage() {
+      try {
+        const cached = await loadCachedPantryItems();
+        const syncTime = await getLastSyncTimestamp();
+        if (cached && cached.length > 0) {
+          setReviewItems(cached);
+          setLastSyncTime(syncTime);
+          console.log(`[FreshPlate Mobile] Restored ${cached.length} pantry items from offline cache.`);
+        } else {
+          // Initialize sample items for instant offline demo
+          await saveCachedPantryItems(SAMPLE_PANTRY_ITEMS);
+          setReviewItems(SAMPLE_PANTRY_ITEMS);
+          setLastSyncTime(new Date().toISOString());
+        }
+      } catch (err) {
+        console.warn('[FreshPlate Mobile] Offline cache hydration notice:', err);
+      }
+    }
+    hydrateOfflineStorage();
+  }, []);
+
+  // Synchronously update state and asynchronously persist to AsyncStorage
+  const updateAndCachePantryItems = (items: PantryReviewItem[]) => {
+    setReviewItems(items);
+    const now = new Date().toISOString();
+    setLastSyncTime(now);
+    saveCachedPantryItems(items).catch((err) =>
+      console.error('[FreshPlate Mobile] Failed to persist pantry items to AsyncStorage:', err)
+    );
+  };
 
   const {
     photoUri,
@@ -182,7 +226,7 @@ export default function App() {
   const handleModeChange = (newMode: ScanMode) => {
     setMode(newMode);
     setScanResult(null);
-    setUploadError(null);
+    setNetworkError(null);
     clearPhoto();
   };
 
@@ -190,7 +234,7 @@ export default function App() {
     if (!photoUri) return;
 
     setIsUploading(true);
-    setUploadError(null);
+    setNetworkError(null);
     setScanResult(null);
 
     try {
@@ -205,14 +249,15 @@ export default function App() {
 
       setScanResult(response);
 
-      // Automatically map recognized items and prepare review state
+      // Automatically map recognized items and save to offline cache
       const mapped = mapScanResultToReviewItems(response, mode);
       if (mapped.length > 0) {
-        setReviewItems(mapped);
+        updateAndCachePantryItems(mapped);
       }
     } catch (err: any) {
       console.error('[FreshPlate App] Analysis error:', err);
-      setUploadError(err.message || 'Failed to analyze photo. Please try again.');
+      const parsed = parseNetworkError(err);
+      setNetworkError(parsed);
     } finally {
       setIsUploading(false);
     }
@@ -222,35 +267,43 @@ export default function App() {
     if (scanResult) {
       const mapped = mapScanResultToReviewItems(scanResult, mode);
       if (mapped.length > 0) {
-        setReviewItems(mapped);
+        updateAndCachePantryItems(mapped);
       }
     }
     setCurrentScreen('review');
   };
 
   const handleStartSampleReview = () => {
-    setReviewItems(SAMPLE_PANTRY_ITEMS);
+    updateAndCachePantryItems(SAMPLE_PANTRY_ITEMS);
     setCurrentScreen('review');
   };
 
   const handleReset = () => {
     clearPhoto();
     setScanResult(null);
-    setUploadError(null);
+    setNetworkError(null);
   };
 
   const handleClearPantryData = () => {
-    setReviewItems([]);
+    updateAndCachePantryItems([]);
     setScanResult(null);
     clearPhoto();
     setRecipes([]);
+    setNetworkError(null);
+    clearCachedPantry().catch((err) =>
+      console.warn('[FreshPlate Mobile] Error clearing cached pantry:', err)
+    );
   };
 
   const handleDeleteAccount = async () => {
-    setReviewItems([]);
+    updateAndCachePantryItems([]);
     setScanResult(null);
     clearPhoto();
     setRecipes([]);
+    setNetworkError(null);
+    await clearCachedPantry().catch((err) =>
+      console.warn('[FreshPlate Mobile] Error clearing cached pantry:', err)
+    );
     setCurrentScreen('scan');
   };
 
@@ -365,7 +418,7 @@ export default function App() {
               <View style={styles.headerRightActions}>
                 <TouchableOpacity
                   style={styles.settingsIconBtn}
-                  onPress={() => setShowSettingsModal(true)}
+                  onPress={() => setCurrentScreen('settings')}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Text style={styles.settingsIconText}>⚙️</Text>
@@ -379,6 +432,15 @@ export default function App() {
               </View>
             </View>
             <Text style={styles.subtitle}>AI-Powered Food Waste & Pantry Assistant</Text>
+
+            {/* Offline Cache Status Chip */}
+            <View style={styles.offlineStatusChip}>
+              <View style={styles.offlineDot} />
+              <Text style={styles.offlineStatusText}>
+                {reviewItems.length} items saved locally (Offline Ready)
+                {lastSyncTime ? ` • Synced ${new Date(lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+              </Text>
+            </View>
           </View>
 
           {/* Mode Selector */}
@@ -490,12 +552,19 @@ export default function App() {
             </View>
           )}
 
-          {/* Error Feedback */}
-          {uploadError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorHeading}>Scan Alert</Text>
-              <Text style={styles.errorText}>{uploadError}</Text>
-            </View>
+          {/* Error Feedback with Interactive Retry & Retake Banners */}
+          {networkError && (
+            <NetworkErrorBanner
+              error={networkError}
+              onRetry={handleAnalyzePhoto}
+              onRetake={() => {
+                setNetworkError(null);
+                clearPhoto();
+                takePhoto();
+              }}
+              onDismiss={() => setNetworkError(null)}
+              isRetrying={isUploading}
+            />
           )}
 
           {/* Results Container with Direct "Proceed to Review" CTA */}
@@ -570,13 +639,15 @@ export default function App() {
         </ScrollView>
       )}
 
-      {/* Screen 2: Pantry Review Screen */}
+      {/* Screen 2: Pantry Review Screen (Backed by Offline Cache) */}
       {currentScreen === 'review' && (
         <PantryReviewScreen
           initialItems={reviewItems}
           onGenerateRecipes={handleGenerateRecipes}
           onBackToScan={() => setCurrentScreen('scan')}
           isGenerating={isGeneratingRecipes}
+          onItemsChange={updateAndCachePantryItems}
+          lastSyncTime={lastSyncTime}
         />
       )}
 
@@ -587,6 +658,17 @@ export default function App() {
           onBackToPantry={() => setCurrentScreen('review')}
           onRegenerate={() => handleGenerateRecipes(reviewItems)}
           isRegenerating={isGeneratingRecipes}
+        />
+      )}
+
+      {/* Screen 4: Settings & Account Screen (Apple 5.1.1(v) & Google Play Compliance) */}
+      {currentScreen === 'settings' && (
+        <SettingsScreen
+          onBack={() => setCurrentScreen('scan')}
+          onClearPantryData={handleClearPantryData}
+          onDeleteAccount={handleDeleteAccount}
+          cachedItemCount={reviewItems.length}
+          lastSyncTime={lastSyncTime}
         />
       )}
 
@@ -659,6 +741,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748b',
     marginTop: 4
+  },
+  offlineStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 6
+  },
+  offlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10b981'
+  },
+  offlineStatusText: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '600'
   },
   tabContainer: {
     flexDirection: 'row',

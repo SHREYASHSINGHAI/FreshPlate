@@ -18,6 +18,8 @@ interface PantryReviewScreenProps {
   onGenerateRecipes: (confirmedItems: PantryReviewItem[]) => void;
   onBackToScan?: () => void;
   isGenerating?: boolean;
+  onItemsChange?: (items: PantryReviewItem[]) => void;
+  lastSyncTime?: string | null;
 }
 
 const CATEGORY_CONFIG: Record<
@@ -54,11 +56,18 @@ export function PantryReviewScreen({
   initialItems,
   onGenerateRecipes,
   onBackToScan,
-  isGenerating = false
+  isGenerating = false,
+  onItemsChange,
+  lastSyncTime
 }: PantryReviewScreenProps) {
   const [items, setItems] = useState<PantryReviewItem[]>(initialItems);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<PantryReviewItem | null>(null);
+
+  // Synchronize when initialItems prop updates from local cache or new scan
+  React.useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems]);
 
   // Form State for Add / Edit
   const [formName, setFormName] = useState('');
@@ -100,20 +109,20 @@ export function PantryReviewScreen({
       return;
     }
 
+    let updated: PantryReviewItem[];
+
     if (editingItem) {
       // Update existing item
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === editingItem.id
-            ? {
-                ...item,
-                name: trimmedName,
-                quantity: formQuantity.trim() || '1 portion',
-                group: formGroup,
-                status: formIsExpiring ? 'expiring_soon' : 'fresh'
-              }
-            : item
-        )
+      updated = items.map((item) =>
+        item.id === editingItem.id
+          ? {
+              ...item,
+              name: trimmedName,
+              quantity: formQuantity.trim() || '1 portion',
+              group: formGroup,
+              status: formIsExpiring ? ('expiring_soon' as const) : ('fresh' as const)
+            }
+          : item
       );
     } else {
       // Add new item
@@ -125,9 +134,11 @@ export function PantryReviewScreen({
         status: formIsExpiring ? 'expiring_soon' : 'fresh',
         isCustom: true
       };
-      setItems((prev) => [...prev, newItem]);
+      updated = [...items, newItem];
     }
 
+    setItems(updated);
+    onItemsChange?.(updated);
     setModalVisible(false);
     setEditingItem(null);
   };
@@ -143,7 +154,9 @@ export function PantryReviewScreen({
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            setItems((prev) => prev.filter((item) => item.id !== itemId));
+            const updated = items.filter((item) => item.id !== itemId);
+            setItems(updated);
+            onItemsChange?.(updated);
           }
         }
       ]
@@ -201,6 +214,17 @@ export function PantryReviewScreen({
         >
           <Text style={styles.quickAddHeaderBtnText}>+ Add Missing</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Offline Storage Status Indicator */}
+      <View style={styles.offlineStorageBar}>
+        <Text style={styles.offlineStorageIcon}>💾</Text>
+        <Text style={styles.offlineStorageText}>
+          Saved locally on device (Offline Ready)
+          {lastSyncTime
+            ? ` • Synced ${new Date(lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            : ''}
+        </Text>
       </View>
 
       {/* Main Categorized Items Scroll Area */}
@@ -860,5 +884,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#ffffff'
+  },
+  offlineStorageBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 6
+  },
+  offlineStorageIcon: {
+    fontSize: 12
+  },
+  offlineStorageText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600'
   }
 });

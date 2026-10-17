@@ -24,16 +24,18 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>MinimumOSVersion</key>
+	<string>15.1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
 	<!-- Apple App Store Camera & Photo Privacy Permissions -->
 	<key>NSCameraUsageDescription</key>
-	<string>FreshPlate requires access to your camera to scan grocery receipts and refrigerator shelves for automated pantry tracking and food waste reduction.</string>
+	<string>FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FreshPlate needs access to your photo library to import existing photos of grocery receipts and pantry items.</string>
+	<string>FreshPlate accesses your photos so you can upload saved receipts and food images.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>FreshPlate may save processed grocery receipts or inventory scans to your photo library.</string>
+	<string>FreshPlate accesses your photos so you can upload saved receipts and food images.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>FreshPlate does not use the microphone, but this permission may be requested if recording video.</string>
 

@@ -3,9 +3,10 @@ import { config } from './config/env';
 
 const app = createApp();
 
-const server = app.listen(config.port, () => {
-  console.log(`[FreshPlate Backend] Server running on port ${config.port} in ${config.nodeEnv} mode`);
+const server = app.listen(config.port, '0.0.0.0', () => {
+  console.log(`[FreshPlate Backend] Server running on http://0.0.0.0:${config.port} in ${config.nodeEnv} mode`);
   console.log(`[FreshPlate Backend] API v1 base: http://localhost:${config.port}/api/v1`);
+  console.log(`[FreshPlate Backend] Health check: http://localhost:${config.port}/api/v1/health`);
   console.log(`[FreshPlate Backend] Vision endpoint: POST http://localhost:${config.port}/api/v1/analyze-ingredients`);
 });
 
