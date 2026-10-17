@@ -10,5 +10,6 @@ const router = Router();
  * @access  Public / Mobile
  */
 router.post('/generate', generalRateLimiter, generateRecipesController);
+router.post('/', generalRateLimiter, generateRecipesController);
 
 export default router;

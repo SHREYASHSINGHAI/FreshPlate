@@ -17,6 +17,13 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
     });
   }
 
+  if (err.message && err.message.startsWith('Invalid file type')) {
+    return res.status(400).json({
+      success: false,
+      error: err.message
+    });
+  }
+
   const isUnavailable = 
     err?.status === 503 || 
     err?.message?.includes('503') || 

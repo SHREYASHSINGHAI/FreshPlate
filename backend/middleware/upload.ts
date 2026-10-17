@@ -31,3 +31,23 @@ export const uploadMiddleware = multer({
   },
   fileFilter
 });
+
+/**
+ * Mobile-friendly upload handler that supports:
+ * 1. Multipart form-data with any image field ('image', 'file', 'photo', 'receipt', etc.)
+ * 2. Transparent passthrough for JSON base64 payloads
+ */
+export const flexibleImageUpload = (req: Request, res: any, next: any) => {
+  const contentType = (req.headers['content-type'] || '').toLowerCase();
+  if (!contentType.includes('multipart/form-data')) {
+    return next();
+  }
+
+  uploadMiddleware.any()(req, res, (err) => {
+    if (err) return next(err);
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      req.file = req.files[0];
+    }
+    next();
+  });
+};
