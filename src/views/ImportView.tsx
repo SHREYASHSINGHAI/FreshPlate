@@ -182,7 +182,7 @@ export default function ImportView({
     try {
       const base64Data = selectedImage.split(",")[1];
       
-      const res = await fetch(apiUrl("/api/parse-image"), {
+      const res = await fetch(apiUrl("/api/v1/analyze-ingredients"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
