@@ -9,6 +9,7 @@ export interface PantryReviewItem {
   quantity: string;
   status: 'fresh' | 'expiring_soon' | 'expired';
   isCustom?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 export type RecipeFilterMode = 'strict' | 'shopping' | 'all';

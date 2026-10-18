@@ -14,13 +14,13 @@
 - **Requirement:** The app must have a valid Privacy Policy link, describe why permissions are required, and avoid collecting unnecessary data.
 - **Audit Finding:** **PASS**
   - Standard Privacy Policy drafted in [`PRIVACY_POLICY.md`](file:///d:/FreshPlate/mobile/PRIVACY_POLICY.md).
-  - In-app access provided via [`PrivacyPolicyModal.tsx`](file:///d:/FreshPlate/mobile/src/components/PrivacyPolicyModal.tsx) and [`AccountPrivacySettingsModal.tsx`](file:///d:/FreshPlate/mobile/src/components/AccountPrivacySettingsModal.tsx).
+  - In-app access provided via [`PrivacyPolicyModal.tsx`](file:///d:/FreshPlate/mobile/src/components/PrivacyPolicyModal.tsx) and [`SettingsScreen.tsx`](file:///d:/FreshPlate/mobile/src/components/SettingsScreen.tsx).
   - Web policy URL declared in [`app.json`](file:///d:/FreshPlate/mobile/app.json#L56) (`https://freshplate.app/privacy`).
 
 ### Guideline 5.1.1(v): In-App Account Deletion
 - **Requirement:** If an app supports account creation or persistence, it must allow users to initiate account deletion from within the app.
 - **Audit Finding:** **PASS**
-  - Direct in-app deletion button implemented in [`AccountPrivacySettingsModal.tsx`](file:///d:/FreshPlate/mobile/src/components/AccountPrivacySettingsModal.tsx#L50-L77) with destructive double-confirmation dialog.
+  - Direct in-app deletion button implemented in [`SettingsScreen.tsx`](file:///d:/FreshPlate/mobile/src/components/SettingsScreen.tsx#L75-L100) with destructive double-confirmation dialog.
   - Complete erasure of stored pantry items, scan history, and user state.
   - Dedicated web deletion URL provided (`https://freshplate.app/delete-account`).
 

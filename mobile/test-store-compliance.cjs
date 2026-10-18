@@ -16,7 +16,7 @@ function runComplianceAudit() {
     }
   }
 
-  const expectedCameraMsg = "FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients.";
+  const expectedCameraMsg = "FreshPlate requires camera access to scan grocery receipts and fridge shelves.";
   const expectedPhotosMsg = "FreshPlate accesses your photos so you can upload saved receipts and food images.";
 
   // 1. Audit mobile/app.json

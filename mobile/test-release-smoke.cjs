@@ -328,15 +328,8 @@ async function runSmokeTests() {
     `Extracted count: ${mockReceiptApiResponse.data.extractedItems.length}`
   );
 
-  // 3.3 Category mapping logic (Produce, Dairy, Pantry)
-  function detectPantryGroup(name, rawCategory) {
-    const text = `${name} ${rawCategory || ''}`.toLowerCase();
-    const dairyKeywords = ['milk', 'yogurt', 'curd', 'cheese', 'paneer', 'butter', 'cream', 'ghee', 'dairy'];
-    const produceKeywords = ['spinach', 'apple', 'banana', 'tomato', 'onion', 'vegetable', 'fruit', 'greens'];
-    if (dairyKeywords.some(k => text.includes(k))) return 'Dairy';
-    if (produceKeywords.some(k => text.includes(k))) return 'Produce';
-    return 'Pantry';
-  }
+  // 3.3 Category mapping logic (Produce, Dairy, Pantry) from centralized utility
+  const { detectPantryGroup } = require('./src/utils/pantry');
 
   const mappedPantryItems = mockReceiptApiResponse.data.extractedItems.map((item, idx) => ({
     id: `extracted_${idx}`,

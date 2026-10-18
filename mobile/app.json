@@ -18,7 +18,7 @@
       "deploymentTarget": "15.1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients.",
+        "NSCameraUsageDescription": "FreshPlate requires camera access to scan grocery receipts and fridge shelves.",
         "NSPhotoLibraryUsageDescription": "FreshPlate accesses your photos so you can upload saved receipts and food images.",
         "NSPhotoLibraryAddUsageDescription": "FreshPlate accesses your photos so you can upload saved receipts and food images."
       }
@@ -45,7 +45,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients."
+          "cameraPermission": "FreshPlate requires camera access to scan grocery receipts and fridge shelves."
         }
       ],
       [

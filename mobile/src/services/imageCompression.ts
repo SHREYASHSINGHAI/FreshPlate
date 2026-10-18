@@ -1,12 +1,15 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
+import { Image } from 'react-native';
 import { CompressionResult } from '../types';
 
+export const MAX_IMAGE_DIMENSION = 1080; // 1080px maximum width/height ceiling
 export const MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024; // 2MB hard ceiling
 export const TARGET_UPLOAD_SIZE_BYTES = 1.8 * 1024 * 1024; // 1.8MB target safety margin
 
 export interface CompressionOptions {
   targetMaxSizeBytes?: number;
+  maxDimension?: number;
   initialMaxWidth?: number;
   initialQuality?: number;
 }
@@ -40,10 +43,30 @@ export async function getLocalFileSize(uri: string): Promise<number> {
 }
 
 /**
- * Performs progressive client-side image compression using expo-image-manipulator
- * to ensure camera/gallery photos remain strictly under 2MB while preserving
- * sharp OCR text and object clarity for Gemini Vision.
- * 
+ * Safely queries native image dimensions, returning null if inaccessible (e.g. headless tests).
+ */
+export function getImageDimensions(uri: string): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    try {
+      if (!Image || typeof Image.getSize !== 'function') {
+        return resolve(null);
+      }
+      Image.getSize(
+        uri,
+        (width, height) => resolve({ width, height }),
+        () => resolve(null)
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Performs progressive client-side image compression using expo-image-manipulator.
+ * Scales images to a maximum width/height of 1080px while ensuring the resulting
+ * file size remains strictly under 2MB for upload to the backend vision proxy.
+ *
  * @param photoUri Original file URI from camera or gallery
  * @param options Target size constraints & initial quality settings
  */
@@ -53,16 +76,35 @@ export async function compressImageForUpload(
 ): Promise<CompressionResult> {
   const {
     targetMaxSizeBytes = TARGET_UPLOAD_SIZE_BYTES,
-    initialMaxWidth = 1600,
+    maxDimension = MAX_IMAGE_DIMENSION,
     initialQuality = 0.82
   } = options;
 
+  const boundLimit = options.initialMaxWidth ? Math.min(options.initialMaxWidth, maxDimension) : maxDimension;
   const originalSizeBytes = await getLocalFileSize(photoUri);
+  const dimensions = await getImageDimensions(photoUri);
 
-  // Pass 1: Standard high-fidelity compression (1600px width, 82% quality)
+  // Determine scaling axis to guarantee neither width nor height exceeds maxDimension (1080px)
+  let resizeAction: { width?: number; height?: number } | null = null;
+  if (dimensions && dimensions.width > 0 && dimensions.height > 0) {
+    if (dimensions.height > dimensions.width && dimensions.height > boundLimit) {
+      // Portrait: scale height to boundLimit (1080px max)
+      resizeAction = { height: boundLimit };
+    } else if (dimensions.width > boundLimit) {
+      // Landscape or square: scale width to boundLimit (1080px max)
+      resizeAction = { width: boundLimit };
+    }
+  } else {
+    // If dimensions cannot be determined, default to capping width at boundLimit (1080px)
+    resizeAction = { width: boundLimit };
+  }
+
+  const actions: ImageManipulator.Action[] = resizeAction ? [{ resize: resizeAction }] : [];
+
+  // Pass 1: Standard high-fidelity scaling to max 1080px (82% quality)
   let result = await ImageManipulator.manipulateAsync(
     photoUri,
-    [{ resize: { width: initialMaxWidth } }],
+    actions,
     {
       compress: initialQuality,
       format: ImageManipulator.SaveFormat.JPEG
@@ -71,15 +113,13 @@ export async function compressImageForUpload(
 
   let currentSizeBytes = await getLocalFileSize(result.uri);
 
-  // Pass 2: Secondary compression if still exceeding target (1300px width, 70% quality)
+  // Pass 2: Secondary compression if still exceeding target safety margin
   if (currentSizeBytes > targetMaxSizeBytes) {
-    console.log(
-      `[ImageCompression] Pass 1 yielded ${formatBytes(currentSizeBytes)} (> ${formatBytes(targetMaxSizeBytes)}). Running Pass 2...`
-    );
-
+    const secondaryLimit = Math.round(boundLimit * 0.85); // e.g. 918px
+    const secondaryResize = (resizeAction && resizeAction.height) ? { height: secondaryLimit } : { width: secondaryLimit };
     result = await ImageManipulator.manipulateAsync(
       result.uri,
-      [{ resize: { width: 1300 } }],
+      [{ resize: secondaryResize }],
       {
         compress: 0.70,
         format: ImageManipulator.SaveFormat.JPEG
@@ -89,15 +129,13 @@ export async function compressImageForUpload(
     currentSizeBytes = await getLocalFileSize(result.uri);
   }
 
-  // Pass 3: Maximum emergency compression if still over 2MB ceiling (1080px width, 55% quality)
+  // Pass 3: Maximum emergency compression if still over 2MB ceiling
   if (currentSizeBytes > MAX_UPLOAD_SIZE_BYTES) {
-    console.warn(
-      `[ImageCompression] Pass 2 still yielded ${formatBytes(currentSizeBytes)}. Applying Pass 3 aggressive compression...`
-    );
-
+    const emergencyLimit = Math.round(boundLimit * 0.70); // e.g. 756px
+    const emergencyResize = (resizeAction && resizeAction.height) ? { height: emergencyLimit } : { width: emergencyLimit };
     result = await ImageManipulator.manipulateAsync(
       result.uri,
-      [{ resize: { width: 1080 } }],
+      [{ resize: emergencyResize }],
       {
         compress: 0.55,
         format: ImageManipulator.SaveFormat.JPEG
@@ -110,10 +148,6 @@ export async function compressImageForUpload(
   const compressionRatio = originalSizeBytes > 0
     ? Math.max(0, Math.round(((originalSizeBytes - currentSizeBytes) / originalSizeBytes) * 100))
     : 0;
-
-  console.log(
-    `[ImageCompression] Finished. Original: ${formatBytes(originalSizeBytes)} ➔ Compressed: ${formatBytes(currentSizeBytes)} (${compressionRatio}% reduction)`
-  );
 
   return {
     uri: result.uri,

@@ -7,7 +7,7 @@ import {
   NetworkErrorCode,
   NetworkErrorInfo
 } from '../types';
-import { compressImageForUpload, formatBytes } from './imageCompression';
+import { compressImageForUpload } from './imageCompression';
 
 export interface UploadOptions {
   timeoutMs?: number;
@@ -160,11 +160,8 @@ async function prepareCompressedFormData(
       const compressionResult = await compressImageForUpload(photoUri);
       targetUri = compressionResult.uri;
       finalSize = compressionResult.sizeBytes;
-      console.log(
-        `[FreshPlate API] Compressed photo before upload: ${formatBytes(finalSize)} (${compressionResult.compressionRatio}% savings)`
-      );
-    } catch (compressionErr) {
-      console.warn('[FreshPlate API] Client compression warning, falling back to original:', compressionErr);
+    } catch {
+      // Fallback to original photoUri if client-side compression fails
     }
   }
 
@@ -179,17 +176,28 @@ async function prepareCompressedFormData(
   return { formData, compressedUri: targetUri, sizeBytes: finalSize };
 }
 
+interface UploadEndpointConfig {
+  endpoint: string;
+  defaultBlurMessage: string;
+  defaultBlurAdvice: string;
+  rateLimitMessage: string;
+  rateLimitAdvice: string;
+  actionName: string;
+}
+
 /**
- * Dispatches multipart upload request to the secure backend endpoint /api/v1/analyze-ingredients.
- * Guarantees client-side compression (< 2MB) before network transmission.
+ * Centralized multipart photo upload handler for all Gemini vision endpoints.
+ * Guarantees client-side compression (< 2MB) before network transmission,
+ * enforces request timeouts, and maps HTTP error status codes into structured ApiErrors.
  */
-export async function uploadPhotoForAnalysis(
+async function executeImageUpload<T>(
   photoUri: string,
+  config: UploadEndpointConfig,
   options: UploadOptions = {}
-): Promise<AnalyzeIngredientsResponse> {
+): Promise<T> {
   const { timeoutMs = 45000, customBaseUrl, skipCompression = false } = options;
   const baseUrl = customBaseUrl || getApiBaseUrl();
-  const endpointUrl = `${baseUrl}${API_ENDPOINTS.ANALYZE_INGREDIENTS}`;
+  const endpointUrl = `${baseUrl}${config.endpoint}`;
 
   const { formData } = await prepareCompressedFormData(photoUri, skipCompression);
 
@@ -201,7 +209,7 @@ export async function uploadPhotoForAnalysis(
       method: 'POST',
       body: formData,
       headers: {
-        'Accept': 'application/json'
+        Accept: 'application/json'
       },
       signal: controller.signal
     });
@@ -214,8 +222,8 @@ export async function uploadPhotoForAnalysis(
         throw new ApiError({
           code: 'BLURRY_IMAGE',
           statusCode: 422,
-          message: data?.error || 'Photo is too blurry or dark to recognize ingredients.',
-          advice: data?.advice || 'Please hold steady under bright light and take another photo.',
+          message: data?.error || config.defaultBlurMessage,
+          advice: data?.advice || config.defaultBlurAdvice,
           quality: data?.quality,
           isRetryable: true
         });
@@ -225,8 +233,8 @@ export async function uploadPhotoForAnalysis(
         throw new ApiError({
           code: 'RATE_LIMITED',
           statusCode: 429,
-          message: data?.error || 'Rate limit reached. Please wait a few moments.',
-          advice: 'AI scan quota is temporarily reached. Try again in 30 seconds.',
+          message: data?.error || config.rateLimitMessage,
+          advice: config.rateLimitAdvice,
           isRetryable: true
         });
       }
@@ -254,12 +262,12 @@ export async function uploadPhotoForAnalysis(
       throw new ApiError({
         code: 'UNKNOWN',
         statusCode: response.status,
-        message: data?.error || `Upload failed with status code ${response.status}`,
+        message: data?.error || `${config.actionName} failed with status code ${response.status}`,
         isRetryable: true
       });
     }
 
-    return data as AnalyzeIngredientsResponse;
+    return data as T;
   } catch (error: any) {
     clearTimeout(timer);
     if (error instanceof ApiError) throw error;
@@ -267,7 +275,7 @@ export async function uploadPhotoForAnalysis(
     if (error.name === 'AbortError') {
       throw new ApiError({
         code: 'TIMEOUT',
-        message: `Upload request timed out after ${timeoutMs / 1000} seconds.`,
+        message: `${config.actionName} timed out after ${timeoutMs / 1000} seconds.`,
         advice: 'Please check your cellular or Wi-Fi signal and tap Retry.',
         isRetryable: true
       });
@@ -285,10 +293,32 @@ export async function uploadPhotoForAnalysis(
 
     throw new ApiError({
       code: 'UNKNOWN',
-      message: error.message || 'Failed to complete image analysis.',
+      message: error.message || `Failed to complete ${config.actionName.toLowerCase()}.`,
       isRetryable: true
     });
   }
+}
+
+/**
+ * Dispatches multipart upload request to the secure backend endpoint /api/v1/analyze-ingredients.
+ * Guarantees client-side compression (< 2MB) before network transmission.
+ */
+export async function uploadPhotoForAnalysis(
+  photoUri: string,
+  options: UploadOptions = {}
+): Promise<AnalyzeIngredientsResponse> {
+  return executeImageUpload<AnalyzeIngredientsResponse>(
+    photoUri,
+    {
+      endpoint: API_ENDPOINTS.ANALYZE_INGREDIENTS,
+      defaultBlurMessage: 'Photo is too blurry or dark to recognize ingredients.',
+      defaultBlurAdvice: 'Please hold steady under bright light and take another photo.',
+      rateLimitMessage: 'Rate limit reached. Please wait a few moments.',
+      rateLimitAdvice: 'AI scan quota is temporarily reached. Try again in 30 seconds.',
+      actionName: 'Photo analysis'
+    },
+    options
+  );
 }
 
 /**
@@ -299,96 +329,18 @@ export async function uploadReceiptPhoto(
   photoUri: string,
   options: UploadOptions = {}
 ): Promise<ReceiptScanResponse> {
-  const { timeoutMs = 45000, customBaseUrl, skipCompression = false } = options;
-  const baseUrl = customBaseUrl || getApiBaseUrl();
-  const endpointUrl = `${baseUrl}${API_ENDPOINTS.SCAN_RECEIPT}`;
-
-  const { formData } = await prepareCompressedFormData(photoUri, skipCompression);
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(endpointUrl, {
-      method: 'POST',
-      body: formData,
-      headers: { 'Accept': 'application/json' },
-      signal: controller.signal
-    });
-
-    clearTimeout(timer);
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      if (response.status === 422) {
-        throw new ApiError({
-          code: 'BLURRY_IMAGE',
-          statusCode: 422,
-          message: data?.error || 'Receipt is too blurry or illegible to parse.',
-          advice: data?.advice || 'Please flatten the paper receipt under direct light and retake.',
-          quality: data?.quality,
-          isRetryable: true
-        });
-      }
-
-      if (response.status === 429) {
-        throw new ApiError({
-          code: 'RATE_LIMITED',
-          statusCode: 429,
-          message: data?.error || 'AI receipt scanning quota reached. Please wait a moment.',
-          advice: 'Wait 30 seconds before submitting another receipt.',
-          isRetryable: true
-        });
-      }
-
-      if (response.status >= 500) {
-        throw new ApiError({
-          code: 'SERVER_ERROR',
-          statusCode: response.status,
-          message: data?.error || 'Server error while parsing receipt.',
-          advice: 'The server is busy. Tap Retry to try again.',
-          isRetryable: true
-        });
-      }
-
-      throw new ApiError({
-        code: 'UNKNOWN',
-        statusCode: response.status,
-        message: data?.error || `Receipt scan failed (HTTP ${response.status})`,
-        isRetryable: true
-      });
-    }
-
-    return data as ReceiptScanResponse;
-  } catch (error: any) {
-    clearTimeout(timer);
-    if (error instanceof ApiError) throw error;
-
-    if (error.name === 'AbortError') {
-      throw new ApiError({
-        code: 'TIMEOUT',
-        message: `Receipt scan timed out after ${timeoutMs / 1000} seconds.`,
-        advice: 'Check your connection signal and tap Retry.',
-        isRetryable: true
-      });
-    }
-
-    const msg = String(error.message || '').toLowerCase();
-    if (msg.includes('network request failed')) {
-      throw new ApiError({
-        code: 'OFFLINE',
-        message: 'Network offline. Unable to send receipt to server.',
-        advice: 'Connect to Wi-Fi or cellular data to analyze receipts.',
-        isRetryable: true
-      });
-    }
-
-    throw new ApiError({
-      code: 'UNKNOWN',
-      message: error.message || 'Receipt scan failed.',
-      isRetryable: true
-    });
-  }
+  return executeImageUpload<ReceiptScanResponse>(
+    photoUri,
+    {
+      endpoint: API_ENDPOINTS.SCAN_RECEIPT,
+      defaultBlurMessage: 'Receipt is too blurry or illegible to parse.',
+      defaultBlurAdvice: 'Please flatten the paper receipt under direct light and retake.',
+      rateLimitMessage: 'AI receipt scanning quota reached. Please wait a moment.',
+      rateLimitAdvice: 'Wait 30 seconds before submitting another receipt.',
+      actionName: 'Receipt scan'
+    },
+    options
+  );
 }
 
 /**
@@ -399,96 +351,18 @@ export async function uploadFridgePhoto(
   photoUri: string,
   options: UploadOptions = {}
 ): Promise<FridgeScanResponse> {
-  const { timeoutMs = 45000, customBaseUrl, skipCompression = false } = options;
-  const baseUrl = customBaseUrl || getApiBaseUrl();
-  const endpointUrl = `${baseUrl}${API_ENDPOINTS.SCAN_FRIDGE}`;
-
-  const { formData } = await prepareCompressedFormData(photoUri, skipCompression);
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(endpointUrl, {
-      method: 'POST',
-      body: formData,
-      headers: { 'Accept': 'application/json' },
-      signal: controller.signal
-    });
-
-    clearTimeout(timer);
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      if (response.status === 422) {
-        throw new ApiError({
-          code: 'BLURRY_IMAGE',
-          statusCode: 422,
-          message: data?.error || 'Fridge photo is too dark or blurry to identify items.',
-          advice: data?.advice || 'Please turn on room or fridge lights, hold steady, and retake.',
-          quality: data?.quality,
-          isRetryable: true
-        });
-      }
-
-      if (response.status === 429) {
-        throw new ApiError({
-          code: 'RATE_LIMITED',
-          statusCode: 429,
-          message: data?.error || 'Fridge scan quota reached.',
-          advice: 'Please wait a moment before taking another scan.',
-          isRetryable: true
-        });
-      }
-
-      if (response.status >= 500) {
-        throw new ApiError({
-          code: 'SERVER_ERROR',
-          statusCode: response.status,
-          message: data?.error || 'AI vision model temporarily overloaded.',
-          advice: 'Please tap Retry in a few seconds.',
-          isRetryable: true
-        });
-      }
-
-      throw new ApiError({
-        code: 'UNKNOWN',
-        statusCode: response.status,
-        message: data?.error || `Fridge scan failed (HTTP ${response.status})`,
-        isRetryable: true
-      });
-    }
-
-    return data as FridgeScanResponse;
-  } catch (error: any) {
-    clearTimeout(timer);
-    if (error instanceof ApiError) throw error;
-
-    if (error.name === 'AbortError') {
-      throw new ApiError({
-        code: 'TIMEOUT',
-        message: `Fridge scan timed out after ${timeoutMs / 1000} seconds.`,
-        advice: 'Check your connection signal and tap Retry.',
-        isRetryable: true
-      });
-    }
-
-    const msg = String(error.message || '').toLowerCase();
-    if (msg.includes('network request failed')) {
-      throw new ApiError({
-        code: 'OFFLINE',
-        message: 'No network connection detected.',
-        advice: 'Connect to Wi-Fi or mobile data to analyze fridge photos.',
-        isRetryable: true
-      });
-    }
-
-    throw new ApiError({
-      code: 'UNKNOWN',
-      message: error.message || 'Fridge scan failed.',
-      isRetryable: true
-    });
-  }
+  return executeImageUpload<FridgeScanResponse>(
+    photoUri,
+    {
+      endpoint: API_ENDPOINTS.SCAN_FRIDGE,
+      defaultBlurMessage: 'Fridge photo is too dark or blurry to identify items.',
+      defaultBlurAdvice: 'Please turn on room or fridge lights, hold steady, and retake.',
+      rateLimitMessage: 'Fridge scan quota reached.',
+      rateLimitAdvice: 'Please wait a moment before taking another scan.',
+      actionName: 'Fridge scan'
+    },
+    options
+  );
 }
 
 export interface GenerateRecipesOptions {

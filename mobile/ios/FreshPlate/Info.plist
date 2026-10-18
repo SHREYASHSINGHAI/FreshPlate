@@ -31,7 +31,7 @@
 
 	<!-- Apple App Store Camera & Photo Privacy Permissions -->
 	<key>NSCameraUsageDescription</key>
-	<string>FreshPlate uses your camera to scan grocery bills and fridge contents to automatically identify ingredients.</string>
+	<string>FreshPlate requires camera access to scan grocery receipts and fridge shelves.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FreshPlate accesses your photos so you can upload saved receipts and food images.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

@@ -1,14 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config/env';
-
-const ALLOWED_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'image/heic',
-  'image/heif'
-]);
+import {
+  ALLOWED_IMAGE_MIME_TYPES,
+  parseBase64DataUri,
+  calculateBase64ByteLength
+} from '../utils/imageUtils';
 
 /**
  * Validates image upload requests (both multipart/form-data and JSON base64).
@@ -38,7 +34,7 @@ export function validateImageInput(req: Request, res: Response, next: NextFuncti
     }
 
     const mime = (req.file.mimetype || '').toLowerCase();
-    if (!ALLOWED_MIME_TYPES.has(mime)) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.has(mime)) {
       return res.status(400).json({
         success: false,
         statusCode: 400,
@@ -51,21 +47,10 @@ export function validateImageInput(req: Request, res: Response, next: NextFuncti
 
   // Case 2: JSON payload with imageBase64
   if (req.body && typeof req.body.imageBase64 === 'string') {
-    let rawBase64 = req.body.imageBase64.trim();
-    let detectedMime = (req.body.mimeType || 'image/jpeg').toLowerCase();
+    const { cleanedBase64, detectedMime: uriMime } = parseBase64DataUri(req.body.imageBase64);
+    const detectedMime = (req.body.mimeType || uriMime || 'image/jpeg').toLowerCase();
 
-    // Check if format contains data URI header: "data:image/png;base64,..."
-    if (rawBase64.startsWith('data:')) {
-      const parts = rawBase64.split(';base64,');
-      if (parts.length === 2) {
-        detectedMime = parts[0].replace('data:', '').toLowerCase();
-        rawBase64 = parts[1];
-      }
-    } else if (rawBase64.includes(',')) {
-      rawBase64 = rawBase64.split(',')[1];
-    }
-
-    if (rawBase64.length < 50) {
+    if (cleanedBase64.length < 50) {
       return res.status(400).json({
         success: false,
         statusCode: 400,
@@ -74,8 +59,7 @@ export function validateImageInput(req: Request, res: Response, next: NextFuncti
     }
 
     // Calculate approximate binary size from Base64 string length
-    const padding = rawBase64.endsWith('==') ? 2 : rawBase64.endsWith('=') ? 1 : 0;
-    const approximateByteLength = Math.floor((rawBase64.length * 3) / 4) - padding;
+    const approximateByteLength = calculateBase64ByteLength(cleanedBase64);
 
     if (approximateByteLength > config.uploadMaxSizeBytes) {
       return res.status(413).json({
@@ -85,7 +69,7 @@ export function validateImageInput(req: Request, res: Response, next: NextFuncti
       });
     }
 
-    if (!ALLOWED_MIME_TYPES.has(detectedMime)) {
+    if (!ALLOWED_IMAGE_MIME_TYPES.has(detectedMime)) {
       return res.status(400).json({
         success: false,
         statusCode: 400,
@@ -94,7 +78,7 @@ export function validateImageInput(req: Request, res: Response, next: NextFuncti
     }
 
     // Attach cleaned base64 and detected mime to request for controller consumption
-    (req as any).cleanedBase64 = rawBase64;
+    (req as any).cleanedBase64 = cleanedBase64;
     (req as any).validatedMimeType = detectedMime;
 
     return next();

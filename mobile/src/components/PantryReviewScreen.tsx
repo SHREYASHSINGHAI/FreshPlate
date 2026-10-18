@@ -176,6 +176,7 @@ export function PantryReviewScreen({
   };
 
   const expiringCount = items.filter((i) => i.status === 'expiring_soon').length;
+  const lowConfidenceCount = items.filter((i) => i.confidence === 'low').length;
 
   return (
     <View style={styles.screenContainer}>
@@ -226,6 +227,16 @@ export function PantryReviewScreen({
             : ''}
         </Text>
       </View>
+
+      {/* Low-Confidence Vision Recognition Feedback */}
+      {lowConfidenceCount > 0 && (
+        <View style={styles.lowConfidenceAlertBar}>
+          <Text style={styles.lowConfidenceAlertIcon}>⚠️</Text>
+          <Text style={styles.lowConfidenceAlertText}>
+            {lowConfidenceCount} item{lowConfidenceCount > 1 ? 's were' : ' was'} recognized with low confidence. Tap on any highlighted tag to verify or edit.
+          </Text>
+        </View>
+      )}
 
       {/* Main Categorized Items Scroll Area */}
       <ScrollView
@@ -303,6 +314,9 @@ export function PantryReviewScreen({
                               </Text>
                               {isExpiring && (
                                 <Text style={styles.expiringBadge}>⚡ Expiring</Text>
+                              )}
+                              {item.confidence === 'low' && (
+                                <Text style={styles.lowConfidenceBadge}>⚠️ Verify</Text>
                               )}
                             </View>
                             <Text style={styles.tagQuantityText}>
@@ -902,5 +916,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748b',
     fontWeight: '600'
+  },
+  lowConfidenceAlertBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fffbeb',
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#fde68a',
+    gap: 8
+  },
+  lowConfidenceAlertIcon: {
+    fontSize: 13
+  },
+  lowConfidenceAlertText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#92400e',
+    fontWeight: '600'
+  },
+  lowConfidenceBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#b45309',
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginLeft: 6
   }
 });

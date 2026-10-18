@@ -5,63 +5,7 @@ import {
   RECEIPT_RESPONSE_SCHEMA,
   FRIDGE_RESPONSE_SCHEMA
 } from '../services/geminiVision.service';
-import { config } from '../config/env';
-
-/**
- * Extracts and validates base64 image data from either:
- * 1. Pre-validated request properties from validateImageInput middleware
- * 2. Multer multipart file upload (req.file)
- * 3. JSON request body ({ imageBase64, mimeType })
- */
-function extractImageData(req: Request): { base64Data: string | null; mimeType: string; error?: string; statusCode?: number } {
-  // Use pre-validated payload from middleware if available
-  if ((req as any).cleanedBase64) {
-    return {
-      base64Data: (req as any).cleanedBase64,
-      mimeType: (req as any).validatedMimeType || 'image/jpeg'
-    };
-  }
-
-  let base64Data: string | null = null;
-  let mimeType = 'image/jpeg';
-
-  if (req.file) {
-    if (req.file.size > config.uploadMaxSizeBytes) {
-      return { base64Data: null, mimeType, error: 'File size too large. Maximum allowed size is 5MB.', statusCode: 413 };
-    }
-    if (req.file.buffer.length < 50) {
-      return { base64Data: null, mimeType, error: 'Uploaded image file is empty or corrupted (< 50 bytes).', statusCode: 400 };
-    }
-    base64Data = req.file.buffer.toString('base64');
-    mimeType = req.file.mimetype || 'image/jpeg';
-  } else if (req.body?.imageBase64) {
-    let rawBase64 = String(req.body.imageBase64).trim();
-    if (rawBase64.startsWith('data:')) {
-      const parts = rawBase64.split(';base64,');
-      if (parts.length === 2) {
-        mimeType = parts[0].replace('data:', '').toLowerCase();
-        rawBase64 = parts[1];
-      }
-    } else if (rawBase64.includes(',')) {
-      rawBase64 = rawBase64.split(',')[1];
-    }
-
-    if (rawBase64.length < 50) {
-      return { base64Data: null, mimeType, error: 'imageBase64 payload is too short or invalid.', statusCode: 400 };
-    }
-
-    const padding = rawBase64.endsWith('==') ? 2 : rawBase64.endsWith('=') ? 1 : 0;
-    const approximateByteLength = Math.floor((rawBase64.length * 3) / 4) - padding;
-    if (approximateByteLength > config.uploadMaxSizeBytes) {
-      return { base64Data: null, mimeType, error: 'Image size exceeds the maximum allowed limit of 5MB.', statusCode: 413 };
-    }
-
-    base64Data = rawBase64;
-    mimeType = req.body.mimeType || mimeType;
-  }
-
-  return { base64Data, mimeType };
-}
+import { extractImageData } from '../utils/imageUtils';
 
 /**
  * GET /api/v1/scan-receipt

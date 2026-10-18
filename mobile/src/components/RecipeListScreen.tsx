@@ -4,10 +4,7 @@ import {
   Text,
   View,
   TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
-  StatusBar,
-  Alert
+  ScrollView
 } from 'react-native';
 import { Recipe, RecipeFilterMode } from '../types';
 
@@ -16,13 +13,15 @@ interface RecipeListScreenProps {
   onBackToPantry: () => void;
   onRegenerate?: () => void;
   isRegenerating?: boolean;
+  recipesSyncTime?: string | null;
 }
 
 export function RecipeListScreen({
   recipes,
   onBackToPantry,
   onRegenerate,
-  isRegenerating = false
+  isRegenerating = false,
+  recipesSyncTime
 }: RecipeListScreenProps) {
   const [filterMode, setFilterMode] = useState<RecipeFilterMode>('strict');
   const [expandedRecipeIndex, setExpandedRecipeIndex] = useState<number | null>(0);
@@ -104,6 +103,15 @@ export function RecipeListScreen({
         <Text style={styles.subtitle}>
           Personalized recipes curated from your confirmed pantry items
         </Text>
+
+        {recipesSyncTime && (
+          <View style={styles.offlineRecipeBadge}>
+            <Text style={styles.offlineRecipeDot}>●</Text>
+            <Text style={styles.offlineRecipeText}>
+              Available Offline • Synced {new Date(recipesSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
+        )}
 
         {/* Filter Mode Toggle Pills */}
         <View style={styles.filterPillContainer}>
@@ -724,5 +732,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#ffffff'
+  },
+  offlineRecipeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 6
+  },
+  offlineRecipeDot: {
+    fontSize: 10,
+    color: '#10b981'
+  },
+  offlineRecipeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#065f46'
   }
 });

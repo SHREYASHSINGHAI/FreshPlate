@@ -2,7 +2,13 @@
 const mockReactNative = {
   Platform: { OS: 'ios', select: (obj) => obj.ios || obj.default },
   Alert: { alert: () => {} },
-  Linking: { openSettings: () => {} }
+  Linking: { openSettings: () => {} },
+  StyleSheet: { create: (styles) => styles },
+  View: 'View',
+  Text: 'Text',
+  TouchableOpacity: 'TouchableOpacity',
+  SafeAreaView: 'SafeAreaView',
+  ScrollView: 'ScrollView'
 };
 
 // Intercept module loader for react-native
@@ -49,7 +55,16 @@ async function run() {
 
   const { parseNetworkError, ApiError } = require('./src/services/api');
   const { formatBytes, MAX_UPLOAD_SIZE_BYTES, TARGET_UPLOAD_SIZE_BYTES, compressImageForUpload } = require('./src/services/imageCompression');
-  const { loadCachedPantryItems, saveCachedPantryItems, getLastSyncTimestamp, clearCachedPantry } = require('./src/services/storage');
+  const {
+    loadCachedPantryItems,
+    saveCachedPantryItems,
+    getLastSyncTimestamp,
+    loadCachedRecipes,
+    saveCachedRecipes,
+    getCachedRecipesTimestamp,
+    clearCachedPantry
+  } = require('./src/services/storage');
+  const { ErrorBoundary } = require('./src/components/ErrorBoundary');
 
   // 1. Image Compression Constraints (< 2MB)
   assert(
@@ -183,13 +198,55 @@ async function run() {
     `Sync timestamp: ${syncTime}`
   );
 
-  // Clean up test items
+  // 9. Offline Recipe Caching with AsyncStorage
+  const testRecipes = [
+    {
+      title: 'Creamy Spinach Pasta',
+      description: 'Quick skillet pasta using fresh spinach and pantry staples.',
+      ingredients: ['Fresh Spinach', 'Pantry Pasta', 'Olive Oil'],
+      instructions: ['Boil pasta', 'Sauté spinach', 'Toss together'],
+      prepTime: '10 mins',
+      cookTime: '15 mins',
+      difficulty: 'Easy',
+      matchesExpiring: true,
+      usedIngredientIds: ['offline_2'],
+      missingIngredients: ['Olive Oil']
+    }
+  ];
+
+  await saveCachedRecipes(testRecipes);
+  const loadedRecipes = await loadCachedRecipes();
+  const recipeSync = await getCachedRecipesTimestamp();
+
+  assert(
+    'AsyncStorage persists and reloads cached recipes offline',
+    Array.isArray(loadedRecipes) && loadedRecipes.length === 1 && loadedRecipes[0].title === 'Creamy Spinach Pasta',
+    `Loaded recipes count: ${loadedRecipes?.length}`
+  );
+
+  assert(
+    'AsyncStorage records recipe sync ISO timestamp on save',
+    typeof recipeSync === 'string' && recipeSync.length > 0 && !isNaN(Date.parse(recipeSync)),
+    `Recipe sync timestamp: ${recipeSync}`
+  );
+
+  // Clean up test items & recipes
   await clearCachedPantry();
   const afterClear = await loadCachedPantryItems();
+  const afterClearRecipes = await loadCachedRecipes();
   assert(
-    'clearCachedPantry successfully purges storage on account reset',
-    afterClear.length === 0,
-    `Remaining items: ${afterClear.length}`
+    'clearCachedPantry successfully purges storage and offline recipes on account reset',
+    afterClear.length === 0 && afterClearRecipes.length === 0,
+    `Remaining pantry: ${afterClear.length}, recipes: ${afterClearRecipes.length}`
+  );
+
+  // 10. ErrorBoundary Resilience
+  const testError = new Error('Test rendering crash in component tree');
+  const derivedState = ErrorBoundary.getDerivedStateFromError(testError);
+  assert(
+    'ErrorBoundary.getDerivedStateFromError captures errors and enables recovery state',
+    derivedState.hasError === true && derivedState.error === testError,
+    `Derived state: ${JSON.stringify(derivedState)}`
   );
 
   console.log(`\n========================================`);

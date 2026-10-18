@@ -52,8 +52,8 @@ export function getHealthStatus(req: Request, res: Response) {
 
   // If HEAD request, respond with headers only (zero network body)
   if (req.method === 'HEAD') {
-    return res.status(isHealthy ? 200 : 200).end();
+    return res.status(200).end();
   }
 
-  return res.status(isHealthy ? 200 : 200).json(payload);
+  return res.status(200).json(payload);
 }

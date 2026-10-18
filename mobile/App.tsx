@@ -21,151 +21,27 @@ import {
 } from './src/services/api';
 import {
   ScanMode,
-  PantryGroup,
   PantryReviewItem,
   Recipe,
   NetworkErrorInfo
 } from './src/types';
 import { PantryReviewScreen } from './src/components/PantryReviewScreen';
 import { RecipeListScreen } from './src/components/RecipeListScreen';
-import { AccountPrivacySettingsModal } from './src/components/AccountPrivacySettingsModal';
 import { SettingsScreen } from './src/components/SettingsScreen';
 import { NetworkErrorBanner } from './src/components/NetworkErrorBanner';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import {
   loadCachedPantryItems,
   saveCachedPantryItems,
   getLastSyncTimestamp,
+  loadCachedRecipes,
+  saveCachedRecipes,
+  getCachedRecipesTimestamp,
   clearCachedPantry
 } from './src/services/storage';
+import { mapScanResultToReviewItems } from './src/utils/pantry';
 
 type AppScreen = 'scan' | 'review' | 'recipes' | 'settings';
-
-// Default sample pantry items for instant demo review
-const SAMPLE_PANTRY_ITEMS: PantryReviewItem[] = [
-  {
-    id: 'sample_1',
-    name: 'Greek Yogurt',
-    group: 'Dairy',
-    quantity: '500g',
-    status: 'expiring_soon'
-  },
-  {
-    id: 'sample_2',
-    name: 'Cheddar Cheese',
-    group: 'Dairy',
-    quantity: '200g',
-    status: 'fresh'
-  },
-  {
-    id: 'sample_3',
-    name: 'Eggs',
-    group: 'Dairy',
-    quantity: '6 pcs',
-    status: 'fresh'
-  },
-  {
-    id: 'sample_4',
-    name: 'Ripe Tomatoes',
-    group: 'Produce',
-    quantity: '4 pcs',
-    status: 'expiring_soon'
-  },
-  {
-    id: 'sample_5',
-    name: 'Baby Spinach',
-    group: 'Produce',
-    quantity: '1 bag (200g)',
-    status: 'expiring_soon'
-  },
-  {
-    id: 'sample_6',
-    name: 'Yellow Onions',
-    group: 'Produce',
-    quantity: '3 pcs',
-    status: 'fresh'
-  },
-  {
-    id: 'sample_7',
-    name: 'Garlic Bulbs',
-    group: 'Produce',
-    quantity: '1 head',
-    status: 'fresh'
-  },
-  {
-    id: 'sample_8',
-    name: 'Basmati Rice',
-    group: 'Pantry',
-    quantity: '1 kg',
-    status: 'fresh'
-  },
-  {
-    id: 'sample_9',
-    name: 'Olive Oil',
-    group: 'Pantry',
-    quantity: '500 ml',
-    status: 'fresh'
-  },
-  {
-    id: 'sample_10',
-    name: 'Canned Chickpeas',
-    group: 'Pantry',
-    quantity: '1 can (400g)',
-    status: 'fresh'
-  }
-];
-
-function detectPantryGroup(name: string, rawCategory?: string): PantryGroup {
-  const text = `${name} ${rawCategory || ''}`.toLowerCase();
-  const dairyKeywords = [
-    'milk', 'yogurt', 'curd', 'cheese', 'paneer', 'butter', 'cream', 'ghee',
-    'cheddar', 'mozzarella', 'kefir', 'dairy', 'egg'
-  ];
-  const produceKeywords = [
-    'tomato', 'onion', 'potato', 'spinach', 'garlic', 'ginger', 'apple', 'banana',
-    'lemon', 'lime', 'pepper', 'carrot', 'coriander', 'cilantro', 'chili', 'lettuce',
-    'cucumber', 'vegetable', 'fruit', 'herb', 'mushroom', 'avocado', 'produce', 'greens'
-  ];
-
-  if (dairyKeywords.some((k) => text.includes(k))) return 'Dairy';
-  if (produceKeywords.some((k) => text.includes(k))) return 'Produce';
-  return 'Pantry';
-}
-
-function mapScanResultToReviewItems(scanResult: any, mode: ScanMode): PantryReviewItem[] {
-  if (!scanResult) return [];
-
-  if (mode === 'receipt' && Array.isArray(scanResult.items)) {
-    return scanResult.items.map((item: any, idx: number) => ({
-      id: item.id || `receipt_item_${idx}`,
-      name: item.normalizedName || item.rawText,
-      quantity: item.quantity || '1 unit',
-      group: detectPantryGroup(item.normalizedName || item.rawText, item.category),
-      status: item.status || 'fresh'
-    }));
-  }
-
-  if (mode === 'fridge' && Array.isArray(scanResult.detectedItems)) {
-    return scanResult.detectedItems.map((item: any, idx: number) => ({
-      id: item.id || `fridge_item_${idx}`,
-      name: item.name,
-      quantity: item.estimatedQuantity || '1 portion',
-      group: detectPantryGroup(item.name, item.category),
-      status: item.status || 'fresh'
-    }));
-  }
-
-  if (Array.isArray(scanResult.ingredients)) {
-    return scanResult.ingredients.map((item: any, idx: number) => ({
-      id: item.id || `pantry_item_${idx}`,
-      name: item.name,
-      quantity: item.quantity || '1 portion',
-      group: detectPantryGroup(item.name, item.category),
-      status: item.status || 'fresh'
-    }));
-  }
-
-  return [];
-}
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('scan');
@@ -176,29 +52,32 @@ export default function App() {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   // Review & Recipe State (backed by AsyncStorage)
-  const [reviewItems, setReviewItems] = useState<PantryReviewItem[]>(SAMPLE_PANTRY_ITEMS);
+  const [reviewItems, setReviewItems] = useState<PantryReviewItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipesSyncTime, setRecipesSyncTime] = useState<string | null>(null);
   const [isGeneratingRecipes, setIsGeneratingRecipes] = useState<boolean>(false);
-  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
 
-  // Hydrate pantry inventory from local device cache on initial launch
+  // Hydrate pantry inventory and previous recipes from local device cache on initial launch
   useEffect(() => {
     async function hydrateOfflineStorage() {
       try {
-        const cached = await loadCachedPantryItems();
+        const cachedItems = await loadCachedPantryItems();
         const syncTime = await getLastSyncTimestamp();
-        if (cached && cached.length > 0) {
-          setReviewItems(cached);
+        if (cachedItems && cachedItems.length > 0) {
+          setReviewItems(cachedItems);
           setLastSyncTime(syncTime);
-          console.log(`[FreshPlate Mobile] Restored ${cached.length} pantry items from offline cache.`);
-        } else {
-          // Initialize sample items for instant offline demo
-          await saveCachedPantryItems(SAMPLE_PANTRY_ITEMS);
-          setReviewItems(SAMPLE_PANTRY_ITEMS);
-          setLastSyncTime(new Date().toISOString());
+        }
+
+        const cachedRecipes = await loadCachedRecipes();
+        const recSyncTime = await getCachedRecipesTimestamp();
+        if (cachedRecipes && cachedRecipes.length > 0) {
+          setRecipes(cachedRecipes);
+          setRecipesSyncTime(recSyncTime);
         }
       } catch (err) {
-        console.warn('[FreshPlate Mobile] Offline cache hydration notice:', err);
+        if (__DEV__) {
+          console.warn('[FreshPlate Mobile] Offline cache hydration notice:', err);
+        }
       }
     }
     hydrateOfflineStorage();
@@ -273,11 +152,6 @@ export default function App() {
     setCurrentScreen('review');
   };
 
-  const handleStartSampleReview = () => {
-    updateAndCachePantryItems(SAMPLE_PANTRY_ITEMS);
-    setCurrentScreen('review');
-  };
-
   const handleReset = () => {
     clearPhoto();
     setScanResult(null);
@@ -289,10 +163,11 @@ export default function App() {
     setScanResult(null);
     clearPhoto();
     setRecipes([]);
+    setRecipesSyncTime(null);
     setNetworkError(null);
-    clearCachedPantry().catch((err) =>
-      console.warn('[FreshPlate Mobile] Error clearing cached pantry:', err)
-    );
+    clearCachedPantry().catch((err) => {
+      if (__DEV__) console.warn('[FreshPlate Mobile] Error clearing cached pantry:', err);
+    });
   };
 
   const handleDeleteAccount = async () => {
@@ -300,10 +175,11 @@ export default function App() {
     setScanResult(null);
     clearPhoto();
     setRecipes([]);
+    setRecipesSyncTime(null);
     setNetworkError(null);
-    await clearCachedPantry().catch((err) =>
-      console.warn('[FreshPlate Mobile] Error clearing cached pantry:', err)
-    );
+    await clearCachedPantry().catch((err) => {
+      if (__DEV__) console.warn('[FreshPlate Mobile] Error clearing cached pantry:', err);
+    });
     setCurrentScreen('scan');
   };
 
@@ -322,6 +198,11 @@ export default function App() {
 
       if (result.recipes && result.recipes.length > 0) {
         setRecipes(result.recipes);
+        const now = new Date().toISOString();
+        setRecipesSyncTime(now);
+        saveCachedRecipes(result.recipes).catch((err) =>
+          console.error('[FreshPlate Mobile] Failed to persist recipes to AsyncStorage:', err)
+        );
         setCurrentScreen('recipes');
       } else {
         Alert.alert(
@@ -330,72 +211,17 @@ export default function App() {
         );
       }
     } catch (err: any) {
-      console.error('[FreshPlate App] Recipe generation error:', err);
+      if (__DEV__) {
+        console.error('[FreshPlate App] Recipe generation error:', err);
+      }
       Alert.alert(
         'Recipe Generation Notice',
-        err.message || 'Unable to connect to the recipe server. Please check your backend connection.',
+        err.message || 'Unable to connect to the recipe server. Please check your network connection and tap Retry.',
         [
           { text: 'OK' },
           {
-            text: 'View Offline Demo Recipes',
-            onPress: () => {
-              // Graceful fallback for offline demo testing
-              setRecipes([
-                {
-                  title: 'Mediterranean Shakshuka with Feta',
-                  description: 'A comforting, savory skillet dish featuring poached eggs in a spiced tomato, onion, and garlic sauce.',
-                  ingredients: ['Eggs (4 pcs)', 'Ripe Tomatoes (4 pcs)', 'Yellow Onions (1 pc)', 'Garlic Bulbs (2 cloves)', 'Olive Oil (2 tbsp)', 'Salt & Pepper to taste'],
-                  instructions: [
-                    'Heat olive oil in a skillet over medium heat. Sauté diced onions and minced garlic until fragrant.',
-                    'Add chopped ripe tomatoes and simmer for 10 minutes until a rich sauce forms.',
-                    'Make small wells in the sauce and crack the eggs directly into them.',
-                    'Cover and cook for 5-7 minutes until egg whites are set and yolks remain runny.',
-                    'Garnish with fresh herbs and serve hot with crusty bread.'
-                  ],
-                  prepTime: '10 mins',
-                  cookTime: '15 mins',
-                  difficulty: 'Easy',
-                  matchesExpiring: true,
-                  usedIngredientIds: ['sample_3', 'sample_4', 'sample_6', 'sample_7', 'sample_9'],
-                  missingIngredients: [] // Strict mode match!
-                },
-                {
-                  title: 'Creamy Garlic & Spinach Pasta Bowl',
-                  description: 'Silky pasta coated in a Greek yogurt and garlic sauce tossed with fresh baby spinach.',
-                  ingredients: ['Greek Yogurt (1 cup)', 'Baby Spinach (200g)', 'Garlic Bulbs (3 cloves)', 'Olive Oil (1 tbsp)', 'Pasta (250g)', 'Grated Cheddar (50g)'],
-                  instructions: [
-                    'Boil pasta in salted water according to package directions.',
-                    'In a pan, warm olive oil and sauté minced garlic until aromatic.',
-                    'Fold in baby spinach until wilted, then take off heat and stir in Greek yogurt.',
-                    'Toss warm pasta with the creamy yogurt sauce and top with grated cheddar.'
-                  ],
-                  prepTime: '8 mins',
-                  cookTime: '12 mins',
-                  difficulty: 'Easy',
-                  matchesExpiring: true,
-                  usedIngredientIds: ['sample_1', 'sample_2', 'sample_5', 'sample_7', 'sample_9'],
-                  missingIngredients: ['Pasta (Penne or Spaghetti)'] // Shopping mode match (+1 item)
-                },
-                {
-                  title: 'Crispy Spiced Chickpea & Veggie Bowl',
-                  description: 'Roasted chickpeas paired with sautéed spinach, onions, and garlic served over fluffy basmati rice.',
-                  ingredients: ['Canned Chickpeas (1 can)', 'Basmati Rice (1 cup)', 'Baby Spinach (100g)', 'Yellow Onions (1 pc)', 'Garlic (2 cloves)', 'Olive Oil (2 tbsp)', 'Bell Pepper (1 pc)'],
-                  instructions: [
-                    'Cook basmati rice until light and fluffy.',
-                    'Rinse and dry chickpeas. Sauté in olive oil with salt, pepper, and cumin until crispy.',
-                    'Sauté onions, garlic, and sliced bell pepper, then fold in spinach at the end.',
-                    'Assemble bowls with rice, spiced chickpeas, and sautéed greens.'
-                  ],
-                  prepTime: '12 mins',
-                  cookTime: '20 mins',
-                  difficulty: 'Medium',
-                  matchesExpiring: true,
-                  usedIngredientIds: ['sample_5', 'sample_6', 'sample_7', 'sample_8', 'sample_9', 'sample_10'],
-                  missingIngredients: ['Bell Pepper', 'Cumin powder'] // Shopping mode match (+2 items)
-                }
-              ]);
-              setCurrentScreen('recipes');
-            }
+            text: 'Retry',
+            onPress: () => handleGenerateRecipes(confirmedItems)
           }
         ]
       );
@@ -404,7 +230,7 @@ export default function App() {
     }
   };
 
-  return (
+  const appContent = (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
 
@@ -416,6 +242,16 @@ export default function App() {
             <View style={styles.headerTitleRow}>
               <Text style={styles.appTitle}>FreshPlate Mobile</Text>
               <View style={styles.headerRightActions}>
+                {recipes.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.directRecipesBadge}
+                    onPress={() => setCurrentScreen('recipes')}
+                  >
+                    <Text style={styles.directRecipesBadgeText}>
+                      📖 Recipes ({recipes.length})
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={styles.settingsIconBtn}
                   onPress={() => setCurrentScreen('settings')}
@@ -425,7 +261,7 @@ export default function App() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.directReviewBadge}
-                  onPress={handleStartSampleReview}
+                  onPress={() => setCurrentScreen('review')}
                 >
                   <Text style={styles.directReviewBadgeText}>Pantry Review ➔</Text>
                 </TouchableOpacity>
@@ -618,24 +454,46 @@ export default function App() {
                   )}
                 </View>
               )}
+
+              {/* Low-confidence vision recognition feedback and retry controls */}
+              {Boolean(
+                (scanResult.quality && !scanResult.quality.isUsable) ||
+                (Array.isArray(scanResult.items) && scanResult.items.some((i: any) => i.confidence === 'low')) ||
+                (Array.isArray(scanResult.detectedItems) && scanResult.detectedItems.some((i: any) => i.spatialConfidence === 'low'))
+              ) && (
+                <View style={styles.lowConfidenceCard}>
+                  <View style={styles.lowConfidenceHeader}>
+                    <Text style={styles.lowConfidenceIcon}>⚠️</Text>
+                    <Text style={styles.lowConfidenceTitle}>Low-Confidence Detection</Text>
+                  </View>
+                  <Text style={styles.lowConfidenceText}>
+                    Some items could not be identified with high confidence due to lighting, angle, or fold. You can retake the photo or proceed to edit manually.
+                  </Text>
+                  <View style={styles.lowConfidenceActionRow}>
+                    <TouchableOpacity
+                      style={styles.retakeActionBtn}
+                      onPress={takePhoto}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.retakeActionText}>📷 Retake Photo</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.retryAnalysisActionBtn}
+                      onPress={handleAnalyzePhoto}
+                      disabled={isUploading}
+                      activeOpacity={0.8}
+                    >
+                      {isUploading ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <Text style={styles.retryAnalysisActionText}>🔄 Re-analyze</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
           )}
-
-          {/* Quick Demo Review Card */}
-          <View style={styles.demoReviewCard}>
-            <Text style={styles.demoReviewTitle}>✨ Try Interactive Pantry Review</Text>
-            <Text style={styles.demoReviewText}>
-              Review items categorized by Dairy, Produce, and Pantry, edit quantities, add missing ingredients, and generate recipes with Strict vs. Shopping mode filters.
-            </Text>
-            <TouchableOpacity
-              style={styles.demoReviewBtn}
-              onPress={handleStartSampleReview}
-            >
-              <Text style={styles.demoReviewBtnText}>
-                Open Pantry Review Screen ➔
-              </Text>
-            </TouchableOpacity>
-          </View>
         </ScrollView>
       )}
 
@@ -651,13 +509,14 @@ export default function App() {
         />
       )}
 
-      {/* Screen 3: Recipe List UI */}
+      {/* Screen 3: Recipe List UI (Backed by Offline Storage) */}
       {currentScreen === 'recipes' && (
         <RecipeListScreen
           recipes={recipes}
           onBackToPantry={() => setCurrentScreen('review')}
           onRegenerate={() => handleGenerateRecipes(reviewItems)}
           isRegenerating={isGeneratingRecipes}
+          recipesSyncTime={recipesSyncTime}
         />
       )}
 
@@ -671,15 +530,13 @@ export default function App() {
           lastSyncTime={lastSyncTime}
         />
       )}
-
-      {/* Account Deletion & Privacy Settings Modal */}
-      <AccountPrivacySettingsModal
-        visible={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        onClearPantryData={handleClearPantryData}
-        onDeleteAccount={handleDeleteAccount}
-      />
     </SafeAreaView>
+  );
+
+  return (
+    <ErrorBoundary onReset={() => setCurrentScreen('scan')}>
+      {appContent}
+    </ErrorBoundary>
   );
 }
 
@@ -910,12 +767,6 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 16
   },
-  errorHeading: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#991b1b',
-    marginBottom: 2
-  },
   errorText: {
     fontSize: 13,
     color: '#b91c1c'
@@ -990,42 +841,75 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4
   },
-  demoReviewCard: {
-    backgroundColor: '#ffffff',
+  directRecipesBadge: {
+    backgroundColor: '#f0fdf4',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 18,
-    padding: 18,
-    marginTop: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2
+    borderColor: '#86efac',
+    borderRadius: 20,
+    paddingHorizontal: 9,
+    paddingVertical: 5
   },
-  demoReviewTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
+  directRecipesBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803d'
+  },
+  lowConfidenceCard: {
+    backgroundColor: '#fffbeb',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#fde68a',
+    padding: 14,
+    marginBottom: 16
+  },
+  lowConfidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 6
   },
-  demoReviewText: {
-    fontSize: 13,
-    color: '#64748b',
-    lineHeight: 18,
-    marginBottom: 14
+  lowConfidenceIcon: {
+    fontSize: 16
   },
-  demoReviewBtn: {
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center'
-  },
-  demoReviewBtnText: {
+  lowConfidenceTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#334155'
+    color: '#92400e'
+  },
+  lowConfidenceText: {
+    fontSize: 12,
+    color: '#78350f',
+    lineHeight: 18,
+    marginBottom: 12
+  },
+  lowConfidenceActionRow: {
+    flexDirection: 'row',
+    gap: 10
+  },
+  retakeActionBtn: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d97706',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center'
+  },
+  retakeActionText: {
+    color: '#b45309',
+    fontSize: 13,
+    fontWeight: '700'
+  },
+  retryAnalysisActionBtn: {
+    flex: 1,
+    backgroundColor: '#d97706',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center'
+  },
+  retryAnalysisActionText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700'
   }
 });
